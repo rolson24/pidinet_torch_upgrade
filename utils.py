@@ -139,17 +139,25 @@ def adjust_learning_rate(optimizer, epoch, args):
 
 
 def cross_entropy_loss_RCF(prediction, labelf, beta):
+    # Convert labelf to long for mask computations
     label = labelf.long()
     mask = labelf.clone()
-    num_positive = torch.sum(label==1).float()
-    num_negative = torch.sum(label==0).float()
 
+    # Count positive and negative samples
+    num_positive = torch.sum(label == 1).float()
+    num_negative = torch.sum(label == 0).float()
+
+    # Set weights for each class
     mask[label == 1] = 1.0 * num_negative / (num_positive + num_negative)
     mask[label == 0] = beta * num_positive / (num_positive + num_negative)
-    mask[label == 2] = 0
-    cost = F.binary_cross_entropy(
-            prediction, labelf, weight=mask, reduction='sum')
+    mask[label == 2] = 0  # Ignored labels have zero weight
 
+    # Create binary targets: convert labels to 1 for positive, 0 for negative and ignore.
+    # Note: labelf==2 becomes 0 but that loss is zeroed out by the mask.
+    target = (labelf == 1).float()
+
+    # Compute binary cross entropy loss using the updated target tensor.
+    cost = F.binary_cross_entropy(prediction, target, weight=mask, reduction='sum')
     return cost
 
 ######################################
