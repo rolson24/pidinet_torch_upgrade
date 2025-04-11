@@ -18,7 +18,7 @@ import time
 import models
 from models.convert_pidinet import convert_pidinet
 from utils import *
-from edge_dataloader import BSDS_VOCLoader, BSDS_Loader, Multicue_Loader, NYUD_Loader, Custom_Loader
+from edge_dataloader import BSDS_VOCLoader, BSDS_Loader, Multicue_Loader, NYUD_Loader, Custom_Loader, custom_collate_fn
 from torch.utils.data import DataLoader
 
 import torch
@@ -186,7 +186,7 @@ def main(running_file):
         raise ValueError("unrecognized dataset setting")
 
     train_loader = DataLoader(
-        train_dataset, batch_size=args.batch_size, num_workers=args.workers, shuffle=True)
+        train_dataset, batch_size=args.batch_size, num_workers=args.workers, shuffle=True, collate_fn=custom_collate_fn)
     test_loader = DataLoader(
         test_dataset, batch_size=1, num_workers=args.workers, shuffle=False)
 
