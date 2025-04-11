@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from PIL import Image
 import numpy as np
+import torch
+import torch.nn.functional as F
 
 
 def fold_files(foldname):
@@ -14,6 +16,35 @@ def fold_files(foldname):
         return None
     else:
         return allfiles
+
+def custom_collate_fn(batch):
+    images, labels = zip(*batch)
+    
+    # Ensure that all images and labels are torch Tensors.
+    images = [img if isinstance(img, torch.Tensor) else torch.tensor(img) for img in images]
+    labels = [lab if isinstance(lab, torch.Tensor) else torch.from_numpy(lab) for lab in labels]
+    
+    # Get the maximum height and width in this batch.
+    max_h = max(img.size(1) for img in images)
+    max_w = max(img.size(2) for img in images)
+    
+    padded_images = []
+    padded_labels = []
+    
+    for img, lab in zip(images, labels):
+        # Pad the image: pad right and bottom to make them consistent in size.
+        _, h, w = img.size()
+        pad_img = F.pad(img, (0, max_w - w, 0, max_h - h), mode='constant', value=0)
+        padded_images.append(pad_img)
+        
+        # Assuming the labels are shaped as (1, H, W).
+        _, h_lab, w_lab = lab.size()
+        pad_lab = F.pad(lab, (0, max_w - w_lab, 0, max_h - h_lab), mode='constant', value=0)
+        padded_labels.append(pad_lab)
+    
+    images_tensor = torch.stack(padded_images, dim=0)
+    labels_tensor = torch.stack(padded_labels, dim=0)
+    return images_tensor, labels_tensor
 
 class BSDS_Loader(data.Dataset):
     """
