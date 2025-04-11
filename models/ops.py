@@ -7,6 +7,7 @@ Date: Aug 23, 2020
 import math
 
 import torch
+from torch._C import dtype
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -81,9 +82,9 @@ def createConvFunc(op_type):
 
             shape = weights.shape
             if weights.is_cuda:
-                buffer = torch.cuda.FloatTensor(shape[0], shape[1], 5 * 5).fill_(0)
+                buffer = torch.zeros(shape[0], shape[1], 5 * 5, device="cuda", dtype=torch.float32).fill_(0)
             else:
-                buffer = torch.zeros(shape[0], shape[1], 5 * 5)
+                buffer = torch.zeros(shape[0], shape[1], 5 * 5, device="cpu", dtype=torch.float32)
             weights = weights.view(shape[0], shape[1], -1)
             buffer[:, :, [0, 2, 4, 10, 14, 20, 22, 24]] = weights[:, :, 1:]
             buffer[:, :, [6, 7, 8, 11, 13, 16, 17, 18]] = -weights[:, :, 1:]
@@ -95,4 +96,3 @@ def createConvFunc(op_type):
     else:
         print('impossible to be here unless you force that')
         return None
-
