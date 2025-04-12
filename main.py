@@ -57,6 +57,8 @@ parser.add_argument('--checkinfo', action='store_true',
 
 parser.add_argument('--epochs', type=int, default=20, 
         help='number of total epochs to run')
+parser.add_argument('--fixed_img_size', type=int, default=0,
+        help='resize images to size (fixed_img_size, fixed_img_size)')
 parser.add_argument('--iter-size', type=int, default=1, 
         help='number of batches in each iteration')
 parser.add_argument('--batch-size', type=int, default=24,
@@ -167,12 +169,16 @@ def main(running_file):
 
     ### Load Data
     if 'BSDS' == args.dataset[0]:
-        if args.only_bsds:
-            train_dataset = BSDS_Loader(root=args.datadir, split="train", threshold=args.eta, ablation=args.ablation)
-            test_dataset = BSDS_Loader(root=args.datadir, split="test", threshold=args.eta)
+        if args.fixed_img_size == 0:
+            fixed_size = None
         else:
-            train_dataset = BSDS_VOCLoader(root=args.datadir, split="train", threshold=args.eta, ablation=args.ablation)
-            test_dataset = BSDS_VOCLoader(root=args.datadir, split="test", threshold=args.eta)
+            fixed_size = (args.fixed_img_size, args.fixed_img_size)
+        if args.only_bsds:
+            train_dataset = BSDS_Loader(root=args.datadir, split="train", threshold=args.eta, ablation=args.ablation, fixed_size=fixed_size)
+            test_dataset = BSDS_Loader(root=args.datadir, split="test", threshold=args.eta, fixed_size=fixed_size)
+        else:
+            train_dataset = BSDS_VOCLoader(root=args.datadir, split="train", threshold=args.eta, ablation=args.ablation, fixed_size=fixed_size)
+            test_dataset = BSDS_VOCLoader(root=args.datadir, split="test", threshold=args.eta, fixed_size=fixed_size)
     elif 'Multicue' == args.dataset[0]:
         train_dataset = Multicue_Loader(root=args.datadir, split="train", threshold=args.eta, setting=args.dataset[1:])
         test_dataset = Multicue_Loader(root=args.datadir, split="test", threshold=args.eta, setting=args.dataset[1:])
