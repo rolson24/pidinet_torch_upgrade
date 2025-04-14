@@ -93,19 +93,16 @@ class QuantPDCBlock(nn.Module):
         self.stride = stride
         self.act_bit_width = act_bit_width # Store for requantization
 
+        # Define shortcut only if needed (stride > 1 or channels change)
+        self.shortcut = None # Initialize shortcut to None
         if self.stride > 1:
             self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-            # Add quantizer after pooling - Keep this commented based on previous successful test
-            # self.quant_pool = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
             self.shortcut = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
                                             weight_bit_width=weight_bit_width)
-        else:
-            # If inplane != ouplane, need a shortcut
-             if inplane != ouplane:
-                 self.shortcut = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
-                                                 weight_bit_width=weight_bit_width)
-             else: # Shortcut needed for residual connection even if channels are same
-                 self.shortcut = qnn.QuantIdentity(return_quant_tensor=True) # Use QuantIdentity for skip
+        elif inplane != ouplane: # Stride is 1, channels are different
+             self.shortcut = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
+                                             weight_bit_width=weight_bit_width)
+        # else: No explicit shortcut layer if stride=1 and inplane==ouplane
 
         # Determine kernel size based on converted PDC type
         if pdc_type == 'rd':
@@ -123,7 +120,7 @@ class QuantPDCBlock(nn.Module):
         # self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv2 = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
                                      weight_bit_width=weight_bit_width)
-        # Addition requantization - Remove this layer definition
+        # Addition requantization - Keep removed
         # self.requant_add = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
 
     def forward(self, x):
@@ -135,23 +132,22 @@ class QuantPDCBlock(nn.Module):
             x_pooled = self.pool(x.value)
             # Pass the float pooled output directly to conv1
             input_to_conv1 = x_pooled
-            # Apply shortcut to the pooled float
+            # Apply shortcut (must exist) to the pooled float
             identity_processed = self.shortcut(x_pooled)
         else: # Stride = 1
             # Pass float value to conv1
             input_to_conv1 = x.value
-            # Apply shortcut (if exists) to the original float value
-            if hasattr(self, 'shortcut'):
+            # Apply shortcut only if it exists (channels changed)
+            if self.shortcut is not None: # Check if shortcut layer exists
                  identity_processed = self.shortcut(identity.value)
-            else: # Should not happen if shortcut always exists for residual
-                 identity_processed = identity # Fallback, though logic implies shortcut exists
+            else: # No shortcut layer (stride=1, inplane==ouplane), use original QuantTensor
+                 identity_processed = identity
 
         # conv1 receives float Tensor in both stride=1 and stride=2 cases
         y = self.conv1(input_to_conv1)
         # Apply standard ReLU directly
         y_relu = self.relu2(y)
         # Pass ReLU output directly to conv2, relying on its input quantizer
-        # y_relu might be float or QuantTensor, conv2 should handle either
         y = self.conv2(y_relu)
 
         # Add residual connection directly
