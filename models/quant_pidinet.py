@@ -95,8 +95,8 @@ class QuantPDCBlock(nn.Module):
 
         if self.stride > 1:
             self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-            # Add quantizer after pooling
-            self.quant_pool = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
+            # Add quantizer after pooling - Keep this commented based on previous successful test
+            # self.quant_pool = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
             self.shortcut = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
                                             weight_bit_width=weight_bit_width)
         else:
@@ -104,8 +104,8 @@ class QuantPDCBlock(nn.Module):
              if inplane != ouplane:
                  self.shortcut = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
                                                  weight_bit_width=weight_bit_width)
-             # else: # No shortcut needed if stride=1 and channels are same
-                 # self.shortcut = qnn.QuantIdentity(return_quant_tensor=True) # Keep commented for no-residual test
+             else: # Shortcut needed for residual connection even if channels are same
+                 self.shortcut = qnn.QuantIdentity(return_quant_tensor=True) # Use QuantIdentity for skip
 
         # Determine kernel size based on converted PDC type
         if pdc_type == 'rd':
@@ -123,24 +123,23 @@ class QuantPDCBlock(nn.Module):
         # self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv2 = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
                                      weight_bit_width=weight_bit_width)
-        # Addition requantization - Temporarily remove for testing
-        # self.requant_add = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
+        # Addition requantization - Uncomment
+        self.requant_add = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
 
     def forward(self, x):
         # Input x assumed to be QuantTensor
         input_to_conv1 = x # Default to original input for stride=1
-        # identity = x # Keep commented for no-residual test
+        identity = x # Uncomment: Store original input for residual
 
         if self.stride > 1:
             # Pool the float value
             x_pooled = self.pool(x.value)
             # Pass the float pooled output directly to conv1
             input_to_conv1 = x_pooled
-            # Remove explicit requantization before conv1
-            # x = self.quant_pool(x_pooled)
-            # identity = self.shortcut(x) # Keep commented for no-residual test
-        # elif hasattr(self, 'shortcut'): # Keep commented for no-residual test
-             # identity = self.shortcut(identity)
+            # Apply shortcut to the pooled float, QuantConv2d handles input quantization
+            identity = self.shortcut(x_pooled) # Uncomment and apply shortcut to pooled value
+        elif hasattr(self, 'shortcut'): # Apply shortcut if it exists (stride=1, channels changed or identity)
+             identity = self.shortcut(identity) # Uncomment
 
         # conv1 receives either original x (QuantTensor) or x_pooled (float Tensor)
         y = self.conv1(input_to_conv1)
@@ -149,8 +148,8 @@ class QuantPDCBlock(nn.Module):
         # Pass ReLU output directly to conv2, relying on its input quantizer
         y = self.conv2(y_relu)
 
-        # Temporarily remove residual connection for testing
-        out = y # Just return the output of conv2
+        # Add residual connection with requantization
+        out = self.requant_add(y + identity) # Uncomment
         return out
 
 

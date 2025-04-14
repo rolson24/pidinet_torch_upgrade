@@ -113,8 +113,8 @@ class PDCBlock_converted(nn.Module):
         # Add shortcut for stride=1 case if channels change, matching QuantPDCBlock logic
         elif inplane != ouplane:
              self.shortcut = nn.Conv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False)
-        # else: # No shortcut needed if stride=1 and channels are same
-        #     pass # Or define self.shortcut = nn.Identity() if needed elsewhere
+        else: # Add identity shortcut for stride=1, same channels
+            self.shortcut = nn.Identity()
 
         if pdc == 'rd':
             self.conv1 = nn.Conv2d(inplane, inplane, kernel_size=5, padding=2, groups=inplane, bias=False)
@@ -124,21 +124,21 @@ class PDCBlock_converted(nn.Module):
         self.conv2 = nn.Conv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False)
 
     def forward(self, x):
-        # identity = x # Store identity for residual connection - Not needed for this test
+        identity = x # Uncomment: Store identity for residual connection
 
         if self.stride > 1:
             x = self.pool(x)
-            # identity = self.shortcut(x) # Apply shortcut to pooled input - Not needed for this test
-        # elif hasattr(self, 'shortcut'): # Apply shortcut if it exists (stride=1, channels changed) - Not needed for this test
-             # identity = self.shortcut(identity)
+            identity = self.shortcut(x) # Uncomment: Apply shortcut to pooled input
+        elif hasattr(self, 'shortcut'): # Apply shortcut if it exists (stride=1, channels changed or identity)
+             identity = self.shortcut(identity) # Uncomment
 
         y = self.conv1(x)
         y = self.relu2(y)
         y = self.conv2(y)
 
-        # Temporarily remove residual connection for testing
-        # y = y + identity
-        return y # Just return the output of conv2
+        # Add residual connection
+        y = y + identity # Uncomment
+        return y # Uncomment
 
 class PiDiNet(nn.Module):
     def __init__(self, inplane, pdcs, dil=None, sa=False, convert=False):
