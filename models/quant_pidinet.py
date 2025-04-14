@@ -123,8 +123,8 @@ class QuantPDCBlock(nn.Module):
         # self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv2 = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
                                      weight_bit_width=weight_bit_width)
-        # Addition requantization - Uncomment
-        self.requant_add = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
+        # Addition requantization - Remove this layer definition
+        # self.requant_add = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
 
     def forward(self, x):
         # Input x assumed to be QuantTensor
@@ -149,8 +149,8 @@ class QuantPDCBlock(nn.Module):
         # Pass ReLU output directly to conv2, relying on its input quantizer
         y = self.conv2(y_relu)
 
-        # Add residual connection with requantization
-        out = self.requant_add(y + identity) # Uncomment
+        # Add residual connection directly - Remove requant_add wrapper
+        out = y + identity
         return out
 
 
