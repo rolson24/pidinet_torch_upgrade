@@ -35,7 +35,7 @@ def test_pdc_blocks(args):
     sync_block_weights(quant_block_s1, converted_block_s1)
 
     # Create inputs
-    dummy_input_float_s1 = torch.randn(1, inplane, 256, 256) # Smaller size for block test
+    dummy_input_float_s1 = torch.randn(1, inplane, 64, 64) # Smaller size for block test
     input_quantizer_s1 = qnn.QuantIdentity(bit_width=args.act_bits, return_quant_tensor=True)
     dummy_input_quant_s1 = input_quantizer_s1(dummy_input_float_s1)
 
