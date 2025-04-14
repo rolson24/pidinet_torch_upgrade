@@ -128,16 +128,22 @@ class QuantPDCBlock(nn.Module):
 
     def forward(self, x):
         # Input x assumed to be QuantTensor
+        input_to_conv1 = x # Default to original input for stride=1
         # identity = x # Keep commented for no-residual test
+
         if self.stride > 1:
-            # Use .value instead of .values()
-            x_pooled = self.pool(x.value) # Pool the float value
-            x = self.quant_pool(x_pooled) # Requantize the result
+            # Pool the float value
+            x_pooled = self.pool(x.value)
+            # Pass the float pooled output directly to conv1
+            input_to_conv1 = x_pooled
+            # Remove explicit requantization before conv1
+            # x = self.quant_pool(x_pooled)
             # identity = self.shortcut(x) # Keep commented for no-residual test
         # elif hasattr(self, 'shortcut'): # Keep commented for no-residual test
              # identity = self.shortcut(identity)
 
-        y = self.conv1(x)
+        # conv1 receives either original x (QuantTensor) or x_pooled (float Tensor)
+        y = self.conv1(input_to_conv1)
         # Apply standard ReLU directly
         y_relu = self.relu2(y)
         # Pass ReLU output directly to conv2, relying on its input quantizer
