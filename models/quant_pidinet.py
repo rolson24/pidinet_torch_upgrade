@@ -137,9 +137,10 @@ class QuantPDCBlock(nn.Module):
              # identity = self.shortcut(identity)
 
         y = self.conv1(x)
-        # Apply standard ReLU, then quantize its output
-        # Use .value instead of .values()
-        y_relu_float = self.relu2(y.value) # Apply ReLU on float value
+        # Apply standard ReLU directly to the output of conv1,
+        # assuming it's either a QuantTensor (which acts like float)
+        # or already a float Tensor. Then quantize.
+        y_relu_float = self.relu2(y) # Apply ReLU directly to y
         y = self.quant_relu_out(y_relu_float) # Quantize the result
         y = self.conv2(y)
 
