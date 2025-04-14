@@ -35,20 +35,14 @@ class QuantCSAM(nn.Module):
         # Replace QuantSigmoid with nn.Sigmoid
         self.sigmoid = nn.Sigmoid()
 
-    def forward(self, x):
-        # Input x assumed to be QuantTensor
-        # Apply standard ReLU -> float Tensor
-        y_float = self.relu1(x)
-        # Requantize float Tensor -> QuantTensor
-        y = self.quant_relu_out(y_float)
-        # Pass QuantTensor to conv1
-        y = self.conv1(y)
-        # conv2 receives QuantTensor from conv1
-        y = self.conv2(y)
-        # Apply standard Sigmoid to the float value of y
-        y_sigmoid_float = self.sigmoid(y) # y.value gives float tensor
-        # Element-wise multiplication: x (QuantTensor) * y_sigmoid_float (float Tensor)
-        return x * y_sigmoid_float
+    def forward(self, x): # Input x: QuantTensor
+        y_float = self.relu1(x) # y_float: float Tensor
+        y = self.quant_relu_out(y_float) # y: QuantTensor
+        y = self.conv1(y) # y: QuantTensor
+        y = self.conv2(y) # y: QuantTensor
+        # Problem: nn.Sigmoid expects float, but gets QuantTensor 'y'
+        y_sigmoid_float = self.sigmoid(y)
+        return x * y_sigmoid_float # Output: float Tensor
 
 class QuantCDCM(nn.Module):
     """ Quantized Compact Dilation Convolution based Module """
