@@ -47,11 +47,11 @@ def sync_weights(quant_module, float_module, module_name="Module"):
 def test_quant_vs_converted(args):
     """
     Tests if the QuantPiDiNet output matches the converted PiDiNet output
-    sequentially up to block2_4, using equivalent weights and inputs generated
+    sequentially up to block4_4, using equivalent weights and inputs generated
     from preceding blocks.
     """
     # Update description
-    print("Starting test: QuantPiDiNet vs Converted PiDiNet (up to block2_4)")
+    print("Starting test: QuantPiDiNet vs Converted PiDiNet (up to block4_4)")
     print(f"Args: {args}")
 
     # --- Instantiate Full Models ---
@@ -83,7 +83,6 @@ def test_quant_vs_converted(args):
     converted_block1_2 = converted_model_full.block1_2
     quant_block1_3 = quant_model_full.block1_3
     converted_block1_3 = converted_model_full.block1_3
-    # Extract block2 modules
     quant_block2_1 = quant_model_full.block2_1
     converted_block2_1 = converted_model_full.block2_1
     quant_block2_2 = quant_model_full.block2_2
@@ -92,6 +91,24 @@ def test_quant_vs_converted(args):
     converted_block2_3 = converted_model_full.block2_3
     quant_block2_4 = quant_model_full.block2_4
     converted_block2_4 = converted_model_full.block2_4
+    # Extract block3 modules
+    quant_block3_1 = quant_model_full.block3_1
+    converted_block3_1 = converted_model_full.block3_1
+    quant_block3_2 = quant_model_full.block3_2
+    converted_block3_2 = converted_model_full.block3_2
+    quant_block3_3 = quant_model_full.block3_3
+    converted_block3_3 = converted_model_full.block3_3
+    quant_block3_4 = quant_model_full.block3_4
+    converted_block3_4 = converted_model_full.block3_4
+    # Extract block4 modules
+    quant_block4_1 = quant_model_full.block4_1
+    converted_block4_1 = converted_model_full.block4_1
+    quant_block4_2 = quant_model_full.block4_2
+    converted_block4_2 = converted_model_full.block4_2
+    quant_block4_3 = quant_model_full.block4_3
+    converted_block4_3 = converted_model_full.block4_3
+    quant_block4_4 = quant_model_full.block4_4
+    converted_block4_4 = converted_model_full.block4_4
 
 
     quant_init_block.eval()
@@ -111,6 +128,24 @@ def test_quant_vs_converted(args):
     converted_block2_3.eval()
     quant_block2_4.eval()
     converted_block2_4.eval()
+    # Set block3 modules to eval mode
+    quant_block3_1.eval()
+    converted_block3_1.eval()
+    quant_block3_2.eval()
+    converted_block3_2.eval()
+    quant_block3_3.eval()
+    converted_block3_3.eval()
+    quant_block3_4.eval()
+    converted_block3_4.eval()
+    # Set block4 modules to eval mode
+    quant_block4_1.eval()
+    converted_block4_1.eval()
+    quant_block4_2.eval()
+    converted_block4_2.eval()
+    quant_block4_3.eval()
+    converted_block4_3.eval()
+    quant_block4_4.eval()
+    converted_block4_4.eval()
 
 
     # --- Synchronize Weights ---
@@ -123,6 +158,16 @@ def test_quant_vs_converted(args):
     sync_weights(quant_block2_2, converted_block2_2, "block2_2")
     sync_weights(quant_block2_3, converted_block2_3, "block2_3")
     sync_weights(quant_block2_4, converted_block2_4, "block2_4")
+    # Sync block3 modules
+    sync_weights(quant_block3_1, converted_block3_1, "block3_1")
+    sync_weights(quant_block3_2, converted_block3_2, "block3_2")
+    sync_weights(quant_block3_3, converted_block3_3, "block3_3")
+    sync_weights(quant_block3_4, converted_block3_4, "block3_4")
+    # Sync block4 modules
+    sync_weights(quant_block4_1, converted_block4_1, "block4_1")
+    sync_weights(quant_block4_2, converted_block4_2, "block4_2")
+    sync_weights(quant_block4_3, converted_block4_3, "block4_3")
+    sync_weights(quant_block4_4, converted_block4_4, "block4_4")
 
 
     # --- Create Initial Dummy Input ---
@@ -130,55 +175,47 @@ def test_quant_vs_converted(args):
     initial_dummy_input_float = torch.randn(1, 3, 256, 256) # Input to the whole network
 
     # --- Run Inference Sequentially ---
-    print("Running inference sequentially through init_block, block1_x, block2_x...")
+    print("Running inference sequentially through all backbone blocks...")
     with torch.no_grad():
         # Quant Model Path
-        quant_out_init = quant_init_block(initial_dummy_input_float)
-        quant_out_b1_1 = quant_block1_1(quant_out_init)
-        quant_out_b1_2 = quant_block1_2(quant_out_b1_1)
-        quant_out_b1_3 = quant_block1_3(quant_out_b1_2)
-        # Block 2 path
-        quant_out_b2_1 = quant_block2_1(quant_out_b1_3)
-        quant_out_b2_2 = quant_block2_2(quant_out_b2_1)
-        quant_out_b2_3 = quant_block2_3(quant_out_b2_2)
-        quant_out_b2_4 = quant_block2_4(quant_out_b2_3) # Final output for quant path
+        quant_x = quant_init_block(initial_dummy_input_float)
+        quant_x1 = quant_block1_3(quant_block1_2(quant_block1_1(quant_x)))
+        quant_x2 = quant_block2_4(quant_block2_3(quant_block2_2(quant_block2_1(quant_x1))))
+        quant_x3 = quant_block3_4(quant_block3_3(quant_block3_2(quant_block3_1(quant_x2))))
+        quant_x4 = quant_block4_4(quant_block4_3(quant_block4_2(quant_block4_1(quant_x3)))) # Final backbone output
 
         # Converted Model Path
-        converted_out_init = converted_init_block(initial_dummy_input_float)
-        converted_out_b1_1 = converted_block1_1(converted_out_init)
-        converted_out_b1_2 = converted_block1_2(converted_out_b1_1)
-        converted_out_b1_3 = converted_block1_3(converted_out_b1_2)
-        # Block 2 path
-        converted_out_b2_1 = converted_block2_1(converted_out_b1_3)
-        converted_out_b2_2 = converted_block2_2(converted_out_b2_1)
-        converted_out_b2_3 = converted_block2_3(converted_out_b2_2)
-        converted_out_b2_4 = converted_block2_4(converted_out_b2_3) # Final output for converted path
+        converted_x = converted_init_block(initial_dummy_input_float)
+        converted_x1 = converted_block1_3(converted_block1_2(converted_block1_1(converted_x)))
+        converted_x2 = converted_block2_4(converted_block2_3(converted_block2_2(converted_block2_1(converted_x1))))
+        converted_x3 = converted_block3_4(converted_block3_3(converted_block3_2(converted_block3_1(converted_x2))))
+        converted_x4 = converted_block4_4(converted_block4_3(converted_block4_2(converted_block4_1(converted_x3)))) # Final backbone output
 
 
-    # --- Compare Final Outputs (of Block2_4) ---
-    print("Comparing final outputs of block2_4...")
-    if hasattr(quant_out_b2_4, 'value'):
-        quant_output_final_float = quant_out_b2_4.value.detach()
+    # --- Compare Final Outputs (of Block4_4) ---
+    print("Comparing final outputs of block4_4...")
+    if hasattr(quant_x4, 'value'):
+        quant_output_final_float = quant_x4.value.detach()
     else:
-        quant_output_final_float = quant_out_b2_4.detach()
+        quant_output_final_float = quant_x4.detach()
 
     # Use appropriate tolerance
-    are_close_final = torch.allclose(quant_output_final_float, converted_out_b2_4, atol=1e-5)
-    max_diff_final = torch.max(torch.abs(quant_output_final_float - converted_out_b2_4)).item()
+    are_close_final = torch.allclose(quant_output_final_float, converted_x4, atol=1e-5)
+    max_diff_final = torch.max(torch.abs(quant_output_final_float - converted_x4)).item()
 
-    print(f"Block 2_4 final outputs are close: {are_close_final}")
-    print(f"Maximum absolute difference for Block 2_4: {max_diff_final:.6e}")
+    print(f"Block 4_4 final outputs are close: {are_close_final}")
+    print(f"Maximum absolute difference for Block 4_4: {max_diff_final:.6e}")
 
     if are_close_final:
-        print("Test PASSED up to Block 2_4!")
+        print("Test PASSED up to Block 4_4!")
     else:
-        print("Test FAILED at Block 2_4!")
+        print("Test FAILED at Block 4_4!")
 
     return are_close_final
 
 if __name__ == "__main__":
     # ... (argument parsing remains the same) ...
-    parser = argparse.ArgumentParser(description='Test Quantized PiDiNet vs Converted PiDiNet up to block2_4')
+    parser = argparse.ArgumentParser(description='Test Quantized PiDiNet vs Converted PiDiNet up to block4_4')
     parser.add_argument('--model', type=str, default='quant_pidinet_micro',
                         choices=['quant_pidinet_micro', 'quant_pidinet_tiny', 'quant_pidinet_small', 'quant_pidinet'],
                         help='Quantized model type to test')
