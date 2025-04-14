@@ -124,6 +124,7 @@ def test_csam_equivalence(args):
         input_for_quant_csam = dummy_quant_prev_layer(initial_dummy_input_float)
         # Generate input for CSAM (float Tensor)
         input_for_float_csam = dummy_float_prev_layer(initial_dummy_input_float)
+        compare_outputs(input_for_quant_csam, input_for_float_csam, "Input")
 
         # --- Run Inference ---
         print("Running inference on CSAM modules...")
