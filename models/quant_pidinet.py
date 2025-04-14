@@ -20,14 +20,16 @@ class QuantCSAM(nn.Module):
     def __init__(self, channels, act_bit_width=DEFAULT_ACT_BIT_WIDTH, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH):
         super(QuantCSAM, self).__init__()
         mid_channels = 4
-        # Use standard ReLU
         self.relu1 = nn.ReLU()
-        # Add QuantIdentity to requantize ReLU output
         self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv1 = qnn.QuantConv2d(channels, mid_channels, kernel_size=1, padding=0,
                                      weight_bit_width=weight_bit_width,
                                      bias_quant=BiasQuant,
                                      cache_inference_quant_bias=True) # Bias default True
+        # Explicitly initialize bias to 0, matching original CSAM
+        if self.conv1.bias is not None:
+             nn.init.constant_(self.conv1.bias, 0)
+
         self.conv2 = qnn.QuantConv2d(mid_channels, 1, kernel_size=3, padding=1, bias=False,
                                      weight_bit_width=weight_bit_width)
         self.sigmoid = qnn.QuantSigmoid(bit_width=act_bit_width, return_quant_tensor=True)
