@@ -24,15 +24,15 @@ class QuantCSAM(nn.Module):
         self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv1 = qnn.QuantConv2d(channels, mid_channels, kernel_size=1, padding=0,
                                      weight_bit_width=weight_bit_width,
-                                     bias_quant=BiasQuant,
-                                     cache_inference_quant_bias=True) # Bias default True
+                                     bias=True, # Ensure bias parameter exists
+                                     bias_quant=None, # Disable bias quantization for this test
+                                     cache_inference_quant_bias=False) # Not needed if bias_quant is None
         # Explicitly initialize bias to 0, matching original CSAM
         if self.conv1.bias is not None:
              nn.init.constant_(self.conv1.bias, 0)
 
         self.conv2 = qnn.QuantConv2d(mid_channels, 1, kernel_size=3, padding=1, bias=False,
                                      weight_bit_width=weight_bit_width)
-        # Replace QuantSigmoid with nn.Sigmoid
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x): # Input x: QuantTensor
@@ -41,7 +41,7 @@ class QuantCSAM(nn.Module):
         y = self.conv1(y) # y: QuantTensor
         y = self.conv2(y) # y: QuantTensor
         # Problem: nn.Sigmoid expects float, but gets QuantTensor 'y'
-        y_sigmoid_float = self.sigmoid(y)
+        y_sigmoid_float = self.sigmoid(y.value)
         return x * y_sigmoid_float # Output: float Tensor
 
 class QuantCDCM(nn.Module):
