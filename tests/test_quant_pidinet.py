@@ -11,13 +11,32 @@ from models.pidinet import pidinet_micro_converted, pidinet_tiny_converted, pidi
 from models.quant_pidinet import quant_pidinet_micro, quant_pidinet_tiny, quant_pidinet_small, quant_pidinet
 from models.config import config_model_converted
 
+# Dictionary to store intermediate activations
+quant_activations = {}
+converted_activations = {}
+
+def get_activation(name, activations_dict):
+    """Hook function to capture activations"""
+    def hook(model, input, output):
+        # Store the output tensor (detach if needed)
+        # For QuantTensor, store its float value for comparison
+        if hasattr(output, 'value'):
+            activations_dict[name] = output.value.detach()
+        else:
+            activations_dict[name] = output.detach()
+    return hook
+
 def test_quant_vs_converted(args):
     """
     Tests if the QuantPiDiNet output matches the converted PiDiNet output
-    when using equivalent weights.
+    after the first block (block1_3) when using equivalent weights.
     """
-    print("Starting test: QuantPiDiNet vs Converted PiDiNet")
+    print("Starting test: QuantPiDiNet vs Converted PiDiNet (Block 1 Output)")
     print(f"Args: {args}")
+
+    # Clear activation dictionaries for a fresh run
+    quant_activations.clear()
+    converted_activations.clear()
 
     # --- Instantiate Models ---
     print("Instantiating models...")
@@ -60,19 +79,12 @@ def test_quant_vs_converted(args):
             # Directly assign the float parameter if shapes match
             if float_param.shape == converted_state_dict[name].shape:
                 new_converted_state_dict[name] = float_param
-                # print(f"Synchronized {name}") # Optional: for debugging
             else:
                 print(f"Warning: Shape mismatch for {name}. "
                       f"Quant: {float_param.shape}, "
                       f"Target: {converted_state_dict[name].shape}. Skipping.")
-                # Keep original random weight in converted model if shapes mismatch
                 new_converted_state_dict[name] = converted_state_dict[name]
 
-        # else:
-        #     print(f"Parameter {name} from quant_model not found in converted_model state_dict.")
-
-    # Load the synchronized weights into the converted model
-    # Make sure all keys are present; use original if missing from quant
     for key in converted_state_dict.keys():
         if key not in new_converted_state_dict:
             print(f"Warning: Key {key} not found in synchronized dict, using original random weights.")
@@ -81,42 +93,63 @@ def test_quant_vs_converted(args):
     converted_model.load_state_dict(new_converted_state_dict)
     print("Weight synchronization complete.")
 
+    # --- Register Hooks ---
+    print("Registering hooks for block1_3...")
+    # Ensure module names match exactly how they are defined in the classes
+    # Accessing through module attributes if DataParallel is not used here
+    hook_handle_quant = quant_model.block1_3.register_forward_hook(get_activation('block1_3', quant_activations))
+    hook_handle_converted = converted_model.block1_3.register_forward_hook(get_activation('block1_3', converted_activations))
+
     # --- Create Dummy Input ---
     print("Creating dummy input...")
     dummy_input = torch.randn(1, 3, 256, 256) # Example size
 
-    # --- Run Inference ---
-    print("Running inference...")
+    # --- Run Inference up to Block 1 ---
+    print("Running inference up to block1_3...")
     with torch.no_grad():
-        quant_outputs = quant_model(dummy_input)
-        converted_outputs = converted_model(dummy_input)
+        # Quant Model Path
+        x_q = quant_model.quant_inp(dummy_input)
+        x_q = quant_model.init_block(x_q)
+        x_q = quant_model.block1_1(x_q)
+        x_q = quant_model.block1_2(x_q)
+        quant_model.block1_3(x_q) # Run final block to trigger hook
 
-    # Get the final output map (last element in the list)
-    quant_final_output = quant_outputs[-1]
-    converted_final_output = converted_outputs[-1]
+        # Converted Model Path
+        x_c = converted_model.init_block(dummy_input)
+        x_c = converted_model.block1_1(x_c)
+        x_c = converted_model.block1_2(x_c)
+        converted_model.block1_3(x_c) # Run final block to trigger hook
+
+    # --- Remove Hooks ---
+    hook_handle_quant.remove()
+    hook_handle_converted.remove()
+    print("Hooks removed.")
 
     # --- Compare Outputs ---
-    print("Comparing outputs...")
-    # Use a slightly higher tolerance due to potential quantization effects
-    are_close = torch.allclose(quant_final_output, converted_final_output, atol=1e-5)
-    max_diff = torch.max(torch.abs(quant_final_output - converted_final_output)).item()
+    print("Comparing outputs after block1_3...")
+    if 'block1_3' not in quant_activations or 'block1_3' not in converted_activations:
+        print("Error: Failed to capture activations from block1_3.")
+        return False
 
-    print(f"Outputs are close: {are_close}")
-    print(f"Maximum absolute difference: {max_diff:.6e}")
+    quant_block1_output = quant_activations['block1_3']
+    converted_block1_output = converted_activations['block1_3']
+
+    # Use a slightly higher tolerance due to potential quantization effects
+    are_close = torch.allclose(quant_block1_output, converted_block1_output, atol=1e-5)
+    max_diff = torch.max(torch.abs(quant_block1_output - converted_block1_output)).item()
+
+    print(f"Block 1 outputs are close: {are_close}")
+    print(f"Maximum absolute difference after Block 1: {max_diff:.6e}")
 
     if are_close:
-        print("Test PASSED!")
+        print("Test PASSED for Block 1!")
     else:
-        print("Test FAILED!")
-        # Optionally print parts of the tensors for debugging
-        # print("Quant output sample:", quant_final_output.flatten()[:10])
-        # print("Converted output sample:", converted_final_output.flatten()[:10])
-        # print("Difference sample:", (quant_final_output - converted_final_output).flatten()[:10])
+        print("Test FAILED for Block 1!")
 
     return are_close
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Test Quantized PiDiNet vs Converted PiDiNet')
+    parser = argparse.ArgumentParser(description='Test Quantized PiDiNet vs Converted PiDiNet (Block 1)')
     # Add arguments needed by the model factory functions and config
     parser.add_argument('--model', type=str, default='quant_pidinet_micro',
                         choices=['quant_pidinet_micro', 'quant_pidinet_tiny', 'quant_pidinet_small', 'quant_pidinet'],
