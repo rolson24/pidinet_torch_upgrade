@@ -46,12 +46,11 @@ def sync_weights(quant_module, float_module, module_name="Module"):
 
 def test_quant_vs_converted(args):
     """
-    Tests if the QuantPiDiNet output matches the converted PiDiNet output
-    sequentially up to block4_4, using equivalent weights and inputs generated
-    from preceding blocks.
+    Tests if the full QuantPiDiNet output matches the full converted PiDiNet
+    output using equivalent weights and the same input.
     """
     # Update description
-    print("Starting test: QuantPiDiNet vs Converted PiDiNet (up to block4_4)")
+    print("Starting test: Full QuantPiDiNet vs Converted PiDiNet")
     print(f"Args: {args}")
 
     # --- Instantiate Full Models ---
@@ -73,149 +72,75 @@ def test_quant_vs_converted(args):
         raise ValueError(f"Unknown quantized model type: {args.model}")
     converted_model_full = converted_model_func(args)
 
+    # --- Set models to eval mode ---
+    quant_model_full.eval()
+    converted_model_full.eval()
 
-    # --- Extract Submodules ---
-    quant_init_block = quant_model_full.init_block
-    converted_init_block = converted_model_full.init_block
-    quant_block1_1 = quant_model_full.block1_1
-    converted_block1_1 = converted_model_full.block1_1
-    quant_block1_2 = quant_model_full.block1_2
-    converted_block1_2 = converted_model_full.block1_2
-    quant_block1_3 = quant_model_full.block1_3
-    converted_block1_3 = converted_model_full.block1_3
-    quant_block2_1 = quant_model_full.block2_1
-    converted_block2_1 = converted_model_full.block2_1
-    quant_block2_2 = quant_model_full.block2_2
-    converted_block2_2 = converted_model_full.block2_2
-    quant_block2_3 = quant_model_full.block2_3
-    converted_block2_3 = converted_model_full.block2_3
-    quant_block2_4 = quant_model_full.block2_4
-    converted_block2_4 = converted_model_full.block2_4
-    # Extract block3 modules
-    quant_block3_1 = quant_model_full.block3_1
-    converted_block3_1 = converted_model_full.block3_1
-    quant_block3_2 = quant_model_full.block3_2
-    converted_block3_2 = converted_model_full.block3_2
-    quant_block3_3 = quant_model_full.block3_3
-    converted_block3_3 = converted_model_full.block3_3
-    quant_block3_4 = quant_model_full.block3_4
-    converted_block3_4 = converted_model_full.block3_4
-    # Extract block4 modules
-    quant_block4_1 = quant_model_full.block4_1
-    converted_block4_1 = converted_model_full.block4_1
-    quant_block4_2 = quant_model_full.block4_2
-    converted_block4_2 = converted_model_full.block4_2
-    quant_block4_3 = quant_model_full.block4_3
-    converted_block4_3 = converted_model_full.block4_3
-    quant_block4_4 = quant_model_full.block4_4
-    converted_block4_4 = converted_model_full.block4_4
-
-
-    quant_init_block.eval()
-    converted_init_block.eval()
-    quant_block1_1.eval()
-    converted_block1_1.eval()
-    quant_block1_2.eval()
-    converted_block1_2.eval()
-    quant_block1_3.eval()
-    converted_block1_3.eval()
-    # Set block2 modules to eval mode
-    quant_block2_1.eval()
-    converted_block2_1.eval()
-    quant_block2_2.eval()
-    converted_block2_2.eval()
-    quant_block2_3.eval()
-    converted_block2_3.eval()
-    quant_block2_4.eval()
-    converted_block2_4.eval()
-    # Set block3 modules to eval mode
-    quant_block3_1.eval()
-    converted_block3_1.eval()
-    quant_block3_2.eval()
-    converted_block3_2.eval()
-    quant_block3_3.eval()
-    converted_block3_3.eval()
-    quant_block3_4.eval()
-    converted_block3_4.eval()
-    # Set block4 modules to eval mode
-    quant_block4_1.eval()
-    converted_block4_1.eval()
-    quant_block4_2.eval()
-    converted_block4_2.eval()
-    quant_block4_3.eval()
-    converted_block4_3.eval()
-    quant_block4_4.eval()
-    converted_block4_4.eval()
-
-
-    # --- Synchronize Weights ---
-    sync_weights(quant_init_block, converted_init_block, "init_block")
-    sync_weights(quant_block1_1, converted_block1_1, "block1_1")
-    sync_weights(quant_block1_2, converted_block1_2, "block1_2")
-    sync_weights(quant_block1_3, converted_block1_3, "block1_3")
-    # Sync block2 modules
-    sync_weights(quant_block2_1, converted_block2_1, "block2_1")
-    sync_weights(quant_block2_2, converted_block2_2, "block2_2")
-    sync_weights(quant_block2_3, converted_block2_3, "block2_3")
-    sync_weights(quant_block2_4, converted_block2_4, "block2_4")
-    # Sync block3 modules
-    sync_weights(quant_block3_1, converted_block3_1, "block3_1")
-    sync_weights(quant_block3_2, converted_block3_2, "block3_2")
-    sync_weights(quant_block3_3, converted_block3_3, "block3_3")
-    sync_weights(quant_block3_4, converted_block3_4, "block3_4")
-    # Sync block4 modules
-    sync_weights(quant_block4_1, converted_block4_1, "block4_1")
-    sync_weights(quant_block4_2, converted_block4_2, "block4_2")
-    sync_weights(quant_block4_3, converted_block4_3, "block4_3")
-    sync_weights(quant_block4_4, converted_block4_4, "block4_4")
-
+    # --- Synchronize Weights for the full models ---
+    # Note: This assumes sync_weights handles potential mismatches gracefully (e.g., quant params)
+    sync_weights(quant_model_full, converted_model_full, "Full Model")
 
     # --- Create Initial Dummy Input ---
     print("Creating initial dummy input...")
-    initial_dummy_input_float = torch.randn(1, 3, 256, 256) # Input to the whole network
+    # Use a fixed size consistent with training/evaluation if possible, or keep 256x256
+    H, W = 256, 256
+    initial_dummy_input_float = torch.randn(1, 3, H, W) # Input to the whole network
 
-    # --- Run Inference Sequentially ---
-    print("Running inference sequentially through all backbone blocks...")
+    # --- Run Full Forward Pass ---
+    print("Running full forward pass...")
     with torch.no_grad():
-        # Quant Model Path
-        quant_x = quant_init_block(initial_dummy_input_float)
-        quant_x1 = quant_block1_3(quant_block1_2(quant_block1_1(quant_x)))
-        quant_x2 = quant_block2_4(quant_block2_3(quant_block2_2(quant_block2_1(quant_x1))))
-        quant_x3 = quant_block3_4(quant_block3_3(quant_block3_2(quant_block3_1(quant_x2))))
-        quant_x4 = quant_block4_4(quant_block4_3(quant_block4_2(quant_block4_1(quant_x3)))) # Final backbone output
+        # Pass float input directly to both models
+        # Quant model handles input quantization internally if needed (via init_block)
+        quant_outputs = quant_model_full(initial_dummy_input_float)
+        converted_outputs = converted_model_full(initial_dummy_input_float)
 
-        # Converted Model Path
-        converted_x = converted_init_block(initial_dummy_input_float)
-        converted_x1 = converted_block1_3(converted_block1_2(converted_block1_1(converted_x)))
-        converted_x2 = converted_block2_4(converted_block2_3(converted_block2_2(converted_block2_1(converted_x1))))
-        converted_x3 = converted_block3_4(converted_block3_3(converted_block3_2(converted_block3_1(converted_x2))))
-        converted_x4 = converted_block4_4(converted_block4_3(converted_block4_2(converted_block4_1(converted_x3)))) # Final backbone output
+    # --- Compare Final Outputs ---
+    print("Comparing final outputs...")
+    all_outputs_close = True
+    max_overall_diff = 0.0
+
+    if not isinstance(quant_outputs, list) or not isinstance(converted_outputs, list):
+        print("Error: Expected model outputs to be lists.")
+        return False
+    if len(quant_outputs) != len(converted_outputs):
+        print(f"Error: Output list lengths differ! Quant: {len(quant_outputs)}, Converted: {len(converted_outputs)}")
+        return False
+
+    for i, (q_out, c_out) in enumerate(zip(quant_outputs, converted_outputs)):
+        # Quant model's final sigmoid returns float, no need for .value
+        quant_output_float = q_out.detach()
+        converted_output_float = c_out.detach()
+
+        # Check shapes
+        if quant_output_float.shape != converted_output_float.shape:
+            print(f"Output {i} shape mismatch! Quant: {quant_output_float.shape}, Converted: {converted_output_float.shape}")
+            all_outputs_close = False
+            continue # Skip comparison if shapes differ
+
+        # Compare values
+        are_close = torch.allclose(quant_output_float, converted_output_float, atol=1e-5)
+        max_diff = torch.max(torch.abs(quant_output_float - converted_output_float)).item()
+        max_overall_diff = max(max_overall_diff, max_diff)
+
+        print(f"Output {i} is close: {are_close} (Max diff: {max_diff:.6e})")
+        if not are_close:
+            all_outputs_close = False
+            # Optional: Print slices for debugging specific output
+            # print(f"  Quant output {i} sample:", quant_output_float[0, 0, 0, :5])
+            # print(f"  Converted output {i} sample:", converted_output_float[0, 0, 0, :5])
 
 
-    # --- Compare Final Outputs (of Block4_4) ---
-    print("Comparing final outputs of block4_4...")
-    if hasattr(quant_x4, 'value'):
-        quant_output_final_float = quant_x4.value.detach()
+    print(f"\nOverall maximum absolute difference: {max_overall_diff:.6e}")
+    if all_outputs_close:
+        print("Test PASSED for Full Model!")
     else:
-        quant_output_final_float = quant_x4.detach()
+        print("Test FAILED for Full Model!")
 
-    # Use appropriate tolerance
-    are_close_final = torch.allclose(quant_output_final_float, converted_x4, atol=1e-5)
-    max_diff_final = torch.max(torch.abs(quant_output_final_float - converted_x4)).item()
-
-    print(f"Block 4_4 final outputs are close: {are_close_final}")
-    print(f"Maximum absolute difference for Block 4_4: {max_diff_final:.6e}")
-
-    if are_close_final:
-        print("Test PASSED up to Block 4_4!")
-    else:
-        print("Test FAILED at Block 4_4!")
-
-    return are_close_final
+    return all_outputs_close
 
 if __name__ == "__main__":
     # ... (argument parsing remains the same) ...
-    parser = argparse.ArgumentParser(description='Test Quantized PiDiNet vs Converted PiDiNet up to block4_4')
+    parser = argparse.ArgumentParser(description='Test Full Quantized PiDiNet vs Converted PiDiNet')
     parser.add_argument('--model', type=str, default='quant_pidinet_micro',
                         choices=['quant_pidinet_micro', 'quant_pidinet_tiny', 'quant_pidinet_small', 'quant_pidinet'],
                         help='Quantized model type to test')
