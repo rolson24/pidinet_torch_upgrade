@@ -129,7 +129,7 @@ class QuantPDCBlock(nn.Module):
         # Input x assumed to be QuantTensor
         # identity = x # Keep commented for no-residual test
         if self.stride > 1:
-            x_pooled = self.pool(x.value) # Pool the float value
+            x_pooled = self.pool(x.values) # Pool the float value
             x = self.quant_pool(x_pooled) # Requantize the result
             # identity = self.shortcut(x) # Keep commented for no-residual test
         # elif hasattr(self, 'shortcut'): # Keep commented for no-residual test
@@ -137,7 +137,7 @@ class QuantPDCBlock(nn.Module):
 
         y = self.conv1(x)
         # Apply standard ReLU, then quantize its output
-        y_relu_float = self.relu2(y.value) # Apply ReLU on float value
+        y_relu_float = self.relu2(y.values) # Apply ReLU on float value
         y = self.quant_relu_out(y_relu_float) # Quantize the result
         y = self.conv2(y)
 
