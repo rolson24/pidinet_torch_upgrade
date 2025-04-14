@@ -21,28 +21,30 @@ class QuantCSAM(nn.Module):
         super(QuantCSAM, self).__init__()
         mid_channels = 4
         self.relu1 = nn.ReLU()
-        self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
+        # Remove QuantIdentity after ReLU
+        # self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv1 = qnn.QuantConv2d(channels, mid_channels, kernel_size=1, padding=0,
                                      weight_bit_width=weight_bit_width,
                                      bias=True, # Ensure bias parameter exists
-                                     bias_quant=None, # Disable bias quantization for this test
-                                     cache_inference_quant_bias=False) # Not needed if bias_quant is None
-        # Explicitly initialize bias to 0, matching original CSAM
+                                     bias_quant=None, # Keep bias quantization disabled for this test
+                                     cache_inference_quant_bias=False)
         if self.conv1.bias is not None:
              nn.init.constant_(self.conv1.bias, 0)
 
         self.conv2 = qnn.QuantConv2d(mid_channels, 1, kernel_size=3, padding=1, bias=False,
                                      weight_bit_width=weight_bit_width)
-        self.sigmoid = nn.Sigmoid()
+        self.sigmoid = nn.Sigmoid() # Keep standard Sigmoid
 
     def forward(self, x): # Input x: QuantTensor
-        y_float = self.relu1(x) # y_float: float Tensor
-        y = self.quant_relu_out(y_float) # y: QuantTensor
-        y = self.conv1(y) # y: QuantTensor
+        # Apply standard ReLU -> float Tensor
+        y_float = self.relu1(x)
+        # Pass float Tensor directly to conv1
+        y = self.conv1(y_float) # y: QuantTensor (conv1 handles float input)
         y = self.conv2(y) # y: QuantTensor
-        # Problem: nn.Sigmoid expects float, but gets QuantTensor 'y'
-        y_sigmoid_float = self.sigmoid(y)
-        return x * y_sigmoid_float # Output: float Tensor
+        # Apply standard Sigmoid to the float value of y
+        y_sigmoid_float = self.sigmoid(y.value)
+        # Multiply original QuantTensor x by float sigmoid output
+        return x * y_sigmoid_float
 
 class QuantCDCM(nn.Module):
     """ Quantized Compact Dilation Convolution based Module """
