@@ -137,10 +137,10 @@ class QuantPDCBlock(nn.Module):
             # Pass the float pooled output directly to conv1
             input_to_conv1 = x_pooled
             # Apply shortcut to the pooled float, QuantConv2d handles input quantization
-            identity = self.shortcut(x_pooled) # Uncomment and apply shortcut to pooled value
+            identity = self.shortcut(x_pooled)
         elif hasattr(self, 'shortcut'): # Apply shortcut if it exists (stride=1, channels changed or identity)
-             # Pass float value to shortcut layer for consistency
-             identity = self.shortcut(identity.value)
+             # Pass original QuantTensor to shortcut layer (Reverted change)
+             identity = self.shortcut(identity)
 
         # conv1 receives either original x (QuantTensor) or x_pooled (float Tensor)
         y = self.conv1(input_to_conv1)
@@ -149,7 +149,7 @@ class QuantPDCBlock(nn.Module):
         # Pass ReLU output directly to conv2, relying on its input quantizer
         y = self.conv2(y_relu)
 
-        # Add residual connection directly - Remove requant_add wrapper
+        # Add residual connection directly
         out = y + identity
         return out
 
