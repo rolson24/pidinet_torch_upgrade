@@ -40,6 +40,7 @@ def test_quant_vs_converted(args):
     print("Instantiating full models to extract init_block...")
     # ... (model instantiation logic remains the same) ...
     if args.model == 'quant_pidinet_micro':
+        quant_model_full = quant_pidinet_micro(args, weight_bit_width=args.weight_bits, act_bit_width=args.act_bits)
         converted_model_func = pidinet_micro_converted
         inplane = 12 # Input channels for block1_1 in micro model
     elif args.model == 'quant_pidinet_tiny':
