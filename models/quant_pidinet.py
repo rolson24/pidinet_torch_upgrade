@@ -41,7 +41,7 @@ class QuantCSAM(nn.Module):
         y = self.conv1(y) # y: QuantTensor
         y = self.conv2(y) # y: QuantTensor
         # Problem: nn.Sigmoid expects float, but gets QuantTensor 'y'
-        y_sigmoid_float = self.sigmoid(y.value)
+        y_sigmoid_float = self.sigmoid(y)
         return x * y_sigmoid_float # Output: float Tensor
 
 class QuantCDCM(nn.Module):
