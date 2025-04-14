@@ -20,22 +20,25 @@ class QuantCSAM(nn.Module):
     def __init__(self, channels, act_bit_width=DEFAULT_ACT_BIT_WIDTH, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH):
         super(QuantCSAM, self).__init__()
         mid_channels = 4
-        # Use standard ReLU instead of QuantReLU
+        # Use standard ReLU
         self.relu1 = nn.ReLU()
+        # Add QuantIdentity to requantize ReLU output
+        self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv1 = qnn.QuantConv2d(channels, mid_channels, kernel_size=1, padding=0,
                                      weight_bit_width=weight_bit_width,
                                      bias_quant=BiasQuant,
                                      cache_inference_quant_bias=True) # Bias default True
         self.conv2 = qnn.QuantConv2d(mid_channels, 1, kernel_size=3, padding=1, bias=False,
                                      weight_bit_width=weight_bit_width)
-        # Keep QuantSigmoid for the final activation in the attention map calculation
-        self.sigmoid = qnn.QuantSigmoid(bit_width=act_bit_width, return_quant_tensor=True) # Sigmoid activation quantization
+        self.sigmoid = qnn.QuantSigmoid(bit_width=act_bit_width, return_quant_tensor=True)
 
     def forward(self, x):
         # Input x assumed to be QuantTensor
-        # Apply standard ReLU, output will be float Tensor
-        y = self.relu1(x)
-        # Pass float Tensor to conv1, relying on its input quantizer
+        # Apply standard ReLU -> float Tensor
+        y_float = self.relu1(x)
+        # Requantize float Tensor -> QuantTensor
+        y = self.quant_relu_out(y_float)
+        # Pass QuantTensor to conv1
         y = self.conv1(y)
         # conv2 receives QuantTensor from conv1
         y = self.conv2(y)
