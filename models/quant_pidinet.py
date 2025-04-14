@@ -128,29 +128,35 @@ class QuantPDCBlock(nn.Module):
 
     def forward(self, x):
         # Input x assumed to be QuantTensor
-        input_to_conv1 = x # Default to original input for stride=1
-        identity = x # Store original input for residual
+        identity = x # Store original input QuantTensor
 
         if self.stride > 1:
             # Pool the float value
             x_pooled = self.pool(x.value)
             # Pass the float pooled output directly to conv1
             input_to_conv1 = x_pooled
-            # Apply shortcut to the pooled float, QuantConv2d handles input quantization
-            identity = self.shortcut(x_pooled)
-        elif hasattr(self, 'shortcut'): # Apply shortcut if it exists (stride=1, channels changed or identity)
-             # Pass original QuantTensor to shortcut layer (Reverted change)
-             identity = self.shortcut(identity)
+            # Apply shortcut to the pooled float
+            identity_processed = self.shortcut(x_pooled)
+        else: # Stride = 1
+            # Pass float value to conv1
+            input_to_conv1 = x.value
+            # Apply shortcut (if exists) to the original float value
+            if hasattr(self, 'shortcut'):
+                 identity_processed = self.shortcut(identity.value)
+            else: # Should not happen if shortcut always exists for residual
+                 identity_processed = identity # Fallback, though logic implies shortcut exists
 
-        # conv1 receives either original x (QuantTensor) or x_pooled (float Tensor)
+        # conv1 receives float Tensor in both stride=1 and stride=2 cases
         y = self.conv1(input_to_conv1)
         # Apply standard ReLU directly
         y_relu = self.relu2(y)
         # Pass ReLU output directly to conv2, relying on its input quantizer
+        # y_relu might be float or QuantTensor, conv2 should handle either
         y = self.conv2(y_relu)
 
         # Add residual connection directly
-        out = y + identity
+        # y is QuantTensor, identity_processed is QuantTensor
+        out = y + identity_processed
         return out
 
 
