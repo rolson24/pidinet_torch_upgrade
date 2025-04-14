@@ -117,9 +117,10 @@ class QuantPDCBlock(nn.Module):
 
         self.conv1 = qnn.QuantConv2d(inplane, inplane, kernel_size=conv1_kernel_size, padding=conv1_padding, groups=inplane, bias=False,
                                      weight_bit_width=weight_bit_width)
-        # Replace QuantReLU with standard ReLU + QuantIdentity
+        # Use standard ReLU
         self.relu2 = nn.ReLU()
-        self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
+        # Remove explicit quantization after ReLU
+        # self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv2 = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
                                      weight_bit_width=weight_bit_width)
         # Addition requantization - Temporarily remove for testing
@@ -137,15 +138,12 @@ class QuantPDCBlock(nn.Module):
              # identity = self.shortcut(identity)
 
         y = self.conv1(x)
-        # Apply standard ReLU directly to the output of conv1,
-        # assuming it's either a QuantTensor (which acts like float)
-        # or already a float Tensor. Then quantize.
-        y_relu_float = self.relu2(y) # Apply ReLU directly to y
-        y = self.quant_relu_out(y_relu_float) # Quantize the result
-        y = self.conv2(y)
+        # Apply standard ReLU directly
+        y_relu = self.relu2(y)
+        # Pass ReLU output directly to conv2, relying on its input quantizer
+        y = self.conv2(y_relu)
 
         # Temporarily remove residual connection for testing
-        # out = self.requant_add(y + identity)
         out = y # Just return the output of conv2
         return out
 
