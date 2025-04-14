@@ -129,14 +129,14 @@ class QuantPDCBlock(nn.Module):
 
         if self.stride > 1:
             # Pool the float value
-            x_pooled = self.pool(x.value)
+            x_pooled = self.pool(x)
             # Pass the float pooled output directly to conv1
             input_to_conv1 = x_pooled
             # Apply shortcut (must exist) to the pooled float
             identity_processed = self.shortcut(x_pooled)
         else: # Stride = 1
             # Pass float value to conv1
-            input_to_conv1 = x.value
+            input_to_conv1 = x
             # Apply shortcut only if it exists (channels changed)
             if self.shortcut is not None: # Check if shortcut layer exists
                  identity_processed = self.shortcut(identity.value)
