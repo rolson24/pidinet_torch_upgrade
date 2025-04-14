@@ -100,13 +100,12 @@ class QuantPDCBlock(nn.Module):
             self.shortcut = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
                                             weight_bit_width=weight_bit_width)
         else:
-            # If inplane != ouplane, need a shortcut, but original doesn't seem to have it for stride=1
+            # If inplane != ouplane, need a shortcut
              if inplane != ouplane:
                  self.shortcut = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
                                                  weight_bit_width=weight_bit_width)
-             else:
-                 self.shortcut = qnn.QuantIdentity(return_quant_tensor=True) # Identity for skip connection
-
+             # else: # No shortcut needed if stride=1 and channels are same
+                 # self.shortcut = qnn.QuantIdentity(return_quant_tensor=True) # Keep commented for no-residual test
 
         # Determine kernel size based on converted PDC type
         if pdc_type == 'rd':
@@ -118,7 +117,9 @@ class QuantPDCBlock(nn.Module):
 
         self.conv1 = qnn.QuantConv2d(inplane, inplane, kernel_size=conv1_kernel_size, padding=conv1_padding, groups=inplane, bias=False,
                                      weight_bit_width=weight_bit_width)
-        self.relu2 = qnn.QuantReLU(bit_width=act_bit_width, return_quant_tensor=True)
+        # Replace QuantReLU with standard ReLU + QuantIdentity
+        self.relu2 = nn.ReLU()
+        self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv2 = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
                                      weight_bit_width=weight_bit_width)
         # Addition requantization - Temporarily remove for testing
@@ -126,17 +127,18 @@ class QuantPDCBlock(nn.Module):
 
     def forward(self, x):
         # Input x assumed to be QuantTensor
-        identity = x
+        # identity = x # Keep commented for no-residual test
         if self.stride > 1:
             x_pooled = self.pool(x.value) # Pool the float value
             x = self.quant_pool(x_pooled) # Requantize the result
-            # identity = self.shortcut(x) # Shortcut now operates on QuantTensor - Not needed for this test
-        # elif hasattr(self, 'shortcut'): # Not needed for this test
-             # identity = self.shortcut(identity) # Apply shortcut if it exists (e.g., channel change)
+            # identity = self.shortcut(x) # Keep commented for no-residual test
+        # elif hasattr(self, 'shortcut'): # Keep commented for no-residual test
+             # identity = self.shortcut(identity)
 
-
-        y = self.conv1(x) # conv1 now always receives QuantTensor
-        y = self.relu2(y)
+        y = self.conv1(x)
+        # Apply standard ReLU, then quantize its output
+        y_relu_float = self.relu2(y.value) # Apply ReLU on float value
+        y = self.quant_relu_out(y_relu_float) # Quantize the result
         y = self.conv2(y)
 
         # Temporarily remove residual connection for testing
