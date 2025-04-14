@@ -42,7 +42,7 @@ class QuantCSAM(nn.Module):
         y = self.conv1(y_float) # y: QuantTensor (conv1 handles float input)
         y = self.conv2(y) # y: QuantTensor
         # Apply standard Sigmoid to the float value of y
-        y_sigmoid_float = self.sigmoid(y.value)
+        y_sigmoid_float = self.sigmoid(y)
         # Multiply original QuantTensor x by float sigmoid output
         return x * y_sigmoid_float
 
