@@ -108,7 +108,14 @@ class PDCBlock_converted(nn.Module):
 
         if self.stride > 1:
             self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-            self.shortcut = nn.Conv2d(inplane, ouplane, kernel_size=1, padding=0)
+            # Set bias=False to match QuantPDCBlock
+            self.shortcut = nn.Conv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False)
+        # Add shortcut for stride=1 case if channels change, matching QuantPDCBlock logic
+        elif inplane != ouplane:
+             self.shortcut = nn.Conv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False)
+        # else: # No shortcut needed if stride=1 and channels are same
+        #     pass # Or define self.shortcut = nn.Identity() if needed elsewhere
+
         if pdc == 'rd':
             self.conv1 = nn.Conv2d(inplane, inplane, kernel_size=5, padding=2, groups=inplane, bias=False)
         else:
@@ -117,14 +124,21 @@ class PDCBlock_converted(nn.Module):
         self.conv2 = nn.Conv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False)
 
     def forward(self, x):
+        identity = x # Store identity for residual connection
+
         if self.stride > 1:
             x = self.pool(x)
+            identity = self.shortcut(x) # Apply shortcut to pooled input
+        elif hasattr(self, 'shortcut'): # Apply shortcut if it exists (stride=1, channels changed)
+             identity = self.shortcut(identity)
+
         y = self.conv1(x)
         y = self.relu2(y)
         y = self.conv2(y)
-        if self.stride > 1:
-            x = self.shortcut(x)
-        y = y + x
+
+        # Remove the check 'if self.stride > 1:' before adding shortcut
+        # The identity is already correctly transformed (or not) based on stride/channel changes
+        y = y + identity
         return y
 
 class PiDiNet(nn.Module):

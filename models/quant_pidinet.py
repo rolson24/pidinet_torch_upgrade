@@ -23,7 +23,9 @@ class QuantCSAM(nn.Module):
         # Use QuantIdentity for input activation quantization if needed, or rely on previous layer's output quant
         self.relu1 = qnn.QuantReLU(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv1 = qnn.QuantConv2d(channels, mid_channels, kernel_size=1, padding=0,
-                                     weight_bit_width=weight_bit_width, bias_quant=BiasQuant) # Bias default True
+                                     weight_bit_width=weight_bit_width,
+                                     bias_quant=BiasQuant,
+                                     cache_inference_quant_bias=True) # Bias default True
         self.conv2 = qnn.QuantConv2d(mid_channels, 1, kernel_size=3, padding=1, bias=False,
                                      weight_bit_width=weight_bit_width)
         self.sigmoid = qnn.QuantSigmoid(bit_width=act_bit_width, return_quant_tensor=True) # Sigmoid activation quantization
@@ -43,7 +45,9 @@ class QuantCDCM(nn.Module):
         super(QuantCDCM, self).__init__()
         self.relu1 = qnn.QuantReLU(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv1 = qnn.QuantConv2d(in_channels, out_channels, kernel_size=1, padding=0,
-                                     weight_bit_width=weight_bit_width, bias_quant=BiasQuant)
+                                     weight_bit_width=weight_bit_width,
+                                     bias_quant=BiasQuant,
+                                     cache_inference_quant_bias=True)
         # Using standard Conv2d for dilated as Brevitas might not directly support quantized dilated conv easily,
         # or need specific setup. For simplicity, keeping these standard for now.
         # If full quantization is needed here, these need replacement and careful handling.
@@ -73,7 +77,9 @@ class QuantMapReduce(nn.Module):
     def __init__(self, channels, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH):
         super(QuantMapReduce, self).__init__()
         self.conv = qnn.QuantConv2d(channels, 1, kernel_size=1, padding=0,
-                                    weight_bit_width=weight_bit_width, bias_quant=BiasQuant) # Bias default True
+                                    weight_bit_width=weight_bit_width,
+                                    bias_quant=BiasQuant,
+                                    cache_inference_quant_bias=True) # Bias default True
 
     def forward(self, x):
         # Output of this might need sigmoid and quantization, handled later
@@ -219,7 +225,10 @@ class QuantPiDiNet(nn.Module):
                 self.conv_reduces.append(QuantMapReduce(self.fuseplanes[i], weight_bit_width=weight_bit_width))
 
         # Final Classifier
-        self.classifier = qnn.QuantConv2d(4, 1, kernel_size=1, weight_bit_width=weight_bit_width, bias_quant=BiasQuant) # Bias default True
+        self.classifier = qnn.QuantConv2d(4, 1, kernel_size=1,
+                                          weight_bit_width=weight_bit_width,
+                                          bias_quant=BiasQuant,
+                                          cache_inference_quant_bias=True) # Bias default True
         # Initialize classifier weights and bias if needed, similar to original
         # nn.init.constant_(self.classifier.weight, 0.25) # May need adjustment for QuantTensor
         # nn.init.constant_(self.classifier.bias, 0)
