@@ -124,22 +124,21 @@ class PDCBlock_converted(nn.Module):
         self.conv2 = nn.Conv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False)
 
     def forward(self, x):
-        identity = x # Store identity for residual connection
+        # identity = x # Store identity for residual connection - Not needed for this test
 
         if self.stride > 1:
             x = self.pool(x)
-            identity = self.shortcut(x) # Apply shortcut to pooled input
-        elif hasattr(self, 'shortcut'): # Apply shortcut if it exists (stride=1, channels changed)
-             identity = self.shortcut(identity)
+            # identity = self.shortcut(x) # Apply shortcut to pooled input - Not needed for this test
+        # elif hasattr(self, 'shortcut'): # Apply shortcut if it exists (stride=1, channels changed) - Not needed for this test
+             # identity = self.shortcut(identity)
 
         y = self.conv1(x)
         y = self.relu2(y)
         y = self.conv2(y)
 
-        # Remove the check 'if self.stride > 1:' before adding shortcut
-        # The identity is already correctly transformed (or not) based on stride/channel changes
-        y = y + identity
-        return y
+        # Temporarily remove residual connection for testing
+        # y = y + identity
+        return y # Just return the output of conv2
 
 class PiDiNet(nn.Module):
     def __init__(self, inplane, pdcs, dil=None, sa=False, convert=False):

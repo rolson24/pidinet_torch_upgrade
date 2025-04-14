@@ -121,8 +121,8 @@ class QuantPDCBlock(nn.Module):
         self.relu2 = qnn.QuantReLU(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv2 = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
                                      weight_bit_width=weight_bit_width)
-        # Addition requantization
-        self.requant_add = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
+        # Addition requantization - Temporarily remove for testing
+        # self.requant_add = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
 
     def forward(self, x):
         # Input x assumed to be QuantTensor
@@ -130,18 +130,18 @@ class QuantPDCBlock(nn.Module):
         if self.stride > 1:
             x_pooled = self.pool(x.value) # Pool the float value
             x = self.quant_pool(x_pooled) # Requantize the result
-            identity = self.shortcut(x) # Shortcut now operates on QuantTensor
-        elif hasattr(self, 'shortcut'):
-             identity = self.shortcut(identity) # Apply shortcut if it exists (e.g., channel change)
+            # identity = self.shortcut(x) # Shortcut now operates on QuantTensor - Not needed for this test
+        # elif hasattr(self, 'shortcut'): # Not needed for this test
+             # identity = self.shortcut(identity) # Apply shortcut if it exists (e.g., channel change)
 
 
         y = self.conv1(x) # conv1 now always receives QuantTensor
         y = self.relu2(y)
         y = self.conv2(y)
 
-        # Ensure identity has compatible quantization scale or requantize before adding
-        # Brevitas QuantTensor addition usually handles scales
-        out = self.requant_add(y + identity)
+        # Temporarily remove residual connection for testing
+        # out = self.requant_add(y + identity)
+        out = y # Just return the output of conv2
         return out
 
 
