@@ -46,21 +46,20 @@ def sync_weights(quant_module, float_module, module_name="Module"):
 
 def test_quant_vs_converted(args):
     """
-    Tests if the QuantPiDiNet.block1_1 output matches the converted
-    PiDiNet.block1_1 output when using equivalent weights and inputs generated
-    from their respective init_blocks.
+    Tests if the QuantPiDiNet output matches the converted PiDiNet output
+    sequentially up to block1_2, using equivalent weights and inputs generated
+    from preceding blocks.
     """
-    print("Starting test: QuantPiDiNet.block1_1 vs Converted PiDiNet.block1_1")
+    # Update description
+    print("Starting test: QuantPiDiNet vs Converted PiDiNet (up to block1_2)")
     print(f"Args: {args}")
 
     # --- Instantiate Full Models ---
     print("Instantiating full models...")
-    # Quantized Model
+    # ... (model instantiation code remains the same) ...
     if args.model == 'quant_pidinet_micro':
         quant_model_full = quant_pidinet_micro(args, weight_bit_width=args.weight_bits, act_bit_width=args.act_bits)
         converted_model_func = pidinet_micro_converted
-        # inplane = 12 # Not needed directly here
-    # ... (add other model sizes elif blocks as before) ...
     elif args.model == 'quant_pidinet_tiny':
         quant_model_full = quant_pidinet_tiny(args, weight_bit_width=args.weight_bits, act_bit_width=args.act_bits)
         converted_model_func = pidinet_tiny_converted
@@ -72,26 +71,34 @@ def test_quant_vs_converted(args):
         converted_model_func = pidinet_converted
     else:
         raise ValueError(f"Unknown quantized model type: {args.model}")
-
-    # Converted Vanilla Model
     converted_model_full = converted_model_func(args)
+
 
     # --- Extract Submodules ---
     quant_init_block = quant_model_full.init_block
     converted_init_block = converted_model_full.init_block
-    quant_block = quant_model_full.block1_1
-    converted_block = converted_model_full.block1_1
+    quant_block1_1 = quant_model_full.block1_1
+    converted_block1_1 = converted_model_full.block1_1
+    # Extract block1_2
+    quant_block1_2 = quant_model_full.block1_2
+    converted_block1_2 = converted_model_full.block1_2
+
 
     quant_init_block.eval()
     converted_init_block.eval()
-    quant_block.eval()
-    converted_block.eval()
+    quant_block1_1.eval()
+    converted_block1_1.eval()
+    # Set block1_2 to eval mode
+    quant_block1_2.eval()
+    converted_block1_2.eval()
+
 
     # --- Synchronize Weights ---
-    # Sync init_block
     sync_weights(quant_init_block, converted_init_block, "init_block")
-    # Sync block1_1
-    sync_weights(quant_block, converted_block, "block1_1")
+    sync_weights(quant_block1_1, converted_block1_1, "block1_1")
+    # Sync block1_2
+    sync_weights(quant_block1_2, converted_block1_2, "block1_2")
+
 
     # --- Create Initial Dummy Input ---
     print("Creating initial dummy input...")
@@ -100,48 +107,59 @@ def test_quant_vs_converted(args):
     # --- Generate Inputs for Block1_1 using Init_Blocks ---
     print("Generating inputs for block1_1 using init_blocks...")
     with torch.no_grad():
-        # Pass float input directly to quant_init_block, relying on its input quantizer
-        input_for_quant_block = quant_init_block(initial_dummy_input_float)
+        input_for_quant_block1_1 = quant_init_block(initial_dummy_input_float)
+        input_for_converted_block1_1 = converted_init_block(initial_dummy_input_float)
 
-        # Input for converted_block comes from converted_init_block
-        input_for_converted_block = converted_init_block(initial_dummy_input_float)
-
-    # --- Run Inference on Block1_1 ---
+    # --- Run Inference up to Block1_1 ---
     print("Running inference on block1_1...")
     with torch.no_grad():
-        quant_output = quant_block(input_for_quant_block) # Use generated QuantTensor input
-        converted_output = converted_block(input_for_converted_block) # Use generated float Tensor input
+        output_quant_block1_1 = quant_block1_1(input_for_quant_block1_1)
+        output_converted_block1_1 = converted_block1_1(input_for_converted_block1_1)
 
-    # --- Compare Outputs ---
-    print("Comparing outputs of block1_1...")
-    if hasattr(quant_output, 'value'):
-        quant_output_float = quant_output.value.detach()
+    # --- Compare Outputs of Block1_1 (Optional Sanity Check) ---
+    print("Comparing intermediate outputs of block1_1...")
+    if hasattr(output_quant_block1_1, 'value'):
+        output_quant_block1_1_float = output_quant_block1_1.value.detach()
     else:
-        quant_output_float = quant_output.detach()
+        output_quant_block1_1_float = output_quant_block1_1.detach()
+    are_close_b1_1 = torch.allclose(output_quant_block1_1_float, output_converted_block1_1, atol=1e-5)
+    max_diff_b1_1 = torch.max(torch.abs(output_quant_block1_1_float - output_converted_block1_1)).item()
+    print(f"Block 1_1 intermediate outputs are close: {are_close_b1_1} (Max diff: {max_diff_b1_1:.6e})")
+    if not are_close_b1_1:
+        print("Warning: Discrepancy found at block1_1 output, subsequent tests might fail.")
+
+    # --- Run Inference on Block1_2 using outputs of Block1_1 ---
+    print("Running inference on block1_2...")
+    with torch.no_grad():
+        # Use output of quant_block1_1 as input for quant_block1_2
+        quant_output_b1_2 = quant_block1_2(output_quant_block1_1)
+        # Use output of converted_block1_1 as input for converted_block1_2
+        converted_output_b1_2 = converted_block1_2(output_converted_block1_1)
+
+    # --- Compare Final Outputs (of Block1_2) ---
+    print("Comparing final outputs of block1_2...")
+    if hasattr(quant_output_b1_2, 'value'):
+        quant_output_b1_2_float = quant_output_b1_2.value.detach()
+    else:
+        quant_output_b1_2_float = quant_output_b1_2.detach()
 
     # Use appropriate tolerance
-    are_close = torch.allclose(quant_output_float, converted_output, atol=1e-5)
-    max_diff = torch.max(torch.abs(quant_output_float - converted_output)).item()
+    are_close_final = torch.allclose(quant_output_b1_2_float, converted_output_b1_2, atol=1e-5)
+    max_diff_final = torch.max(torch.abs(quant_output_b1_2_float - converted_output_b1_2)).item()
 
-    print(f"Block 1_1 outputs are close: {are_close}")
-    print(f"Maximum absolute difference for Block 1_1: {max_diff:.6e}")
+    print(f"Block 1_2 final outputs are close: {are_close_final}")
+    print(f"Maximum absolute difference for Block 1_2: {max_diff_final:.6e}")
 
-    if are_close:
-        print("Test PASSED for Block 1_1 isolation!")
+    if are_close_final:
+        print("Test PASSED up to Block 1_2!")
     else:
-        print("Test FAILED for Block 1_1 isolation!")
-        # Optional: Print shapes or slices for debugging
-        # print("Quant output shape:", quant_output_float.shape)
-        # print("Converted output shape:", converted_output.shape)
-        # print("Quant output sample:", quant_output_float[0, 0, 0, :5])
-        # print("Converted output sample:", converted_output[0, 0, 0, :5])
+        print("Test FAILED at Block 1_2!")
 
-
-    return are_close
+    return are_close_final
 
 if __name__ == "__main__":
     # ... (argument parsing remains the same) ...
-    parser = argparse.ArgumentParser(description='Test Quantized PiDiNet.block1_1 vs Converted PiDiNet.block1_1')
+    parser = argparse.ArgumentParser(description='Test Quantized PiDiNet vs Converted PiDiNet up to block1_2')
     parser.add_argument('--model', type=str, default='quant_pidinet_micro',
                         choices=['quant_pidinet_micro', 'quant_pidinet_tiny', 'quant_pidinet_small', 'quant_pidinet'],
                         help='Quantized model type to test')
