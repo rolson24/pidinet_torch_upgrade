@@ -50,34 +50,38 @@ class QuantCDCM(nn.Module):
     """ Quantized Compact Dilation Convolution based Module """
     def __init__(self, in_channels, out_channels, act_bit_width=DEFAULT_ACT_BIT_WIDTH, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH):
         super(QuantCDCM, self).__init__()
-        self.relu1 = qnn.QuantReLU(bit_width=act_bit_width, return_quant_tensor=True)
+        # Replace QuantReLU with nn.ReLU
+        self.relu1 = nn.ReLU()
         self.conv1 = qnn.QuantConv2d(in_channels, out_channels, kernel_size=1, padding=0,
                                      weight_bit_width=weight_bit_width,
-                                     bias_quant=BiasQuant,
-                                     cache_inference_quant_bias=True)
-        # Using standard Conv2d for dilated as Brevitas might not directly support quantized dilated conv easily,
-        # or need specific setup. For simplicity, keeping these standard for now.
-        # If full quantization is needed here, these need replacement and careful handling.
-        # Alternatively, use qnn.QuantConv2d if supported and tested for dilation.
-        # Let's try qnn.QuantConv2d assuming it works.
+                                     bias=True, # Ensure bias exists
+                                     bias_quant=None, # Disable bias quantization
+                                     cache_inference_quant_bias=False)
+        # Initialize conv1 bias to 0
+        if self.conv1.bias is not None:
+            nn.init.constant_(self.conv1.bias, 0)
+
+        # Keep dilated convs as QuantConv2d (bias=False)
         self.conv2_1 = qnn.QuantConv2d(out_channels, out_channels, kernel_size=3, dilation=5, padding=5, bias=False, weight_bit_width=weight_bit_width)
         self.conv2_2 = qnn.QuantConv2d(out_channels, out_channels, kernel_size=3, dilation=7, padding=7, bias=False, weight_bit_width=weight_bit_width)
         self.conv2_3 = qnn.QuantConv2d(out_channels, out_channels, kernel_size=3, dilation=9, padding=9, bias=False, weight_bit_width=weight_bit_width)
         self.conv2_4 = qnn.QuantConv2d(out_channels, out_channels, kernel_size=3, dilation=11, padding=11, bias=False, weight_bit_width=weight_bit_width)
-        # Addition might require explicit requantization if inputs have different scales
-        self.requant_add = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
+        # Remove requant_add layer
+        # self.requant_add = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
 
 
-    def forward(self, x):
-        x = self.relu1(x)
-        x = self.conv1(x)
+    def forward(self, x): # Input x: QuantTensor
+        # Apply standard ReLU -> float Tensor
+        x_float = self.relu1(x)
+        # Pass float Tensor directly to conv1
+        x = self.conv1(x_float) # x: QuantTensor
+        # Pass QuantTensor to dilated convs
         x1 = self.conv2_1(x)
         x2 = self.conv2_2(x)
         x3 = self.conv2_3(x)
         x4 = self.conv2_4(x)
-        # Summing QuantTensors: Brevitas typically handles this, but explicit requantization might be safer
-        return self.requant_add(x1 + x2 + x3 + x4)
-
+        # Sum QuantTensors directly
+        return x1 + x2 + x3 + x4 # Output: QuantTensor
 
 class QuantMapReduce(nn.Module):
     """ Quantized Reduce feature maps into a single edge map """
