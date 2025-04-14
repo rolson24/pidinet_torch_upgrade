@@ -32,7 +32,8 @@ class QuantCSAM(nn.Module):
 
         self.conv2 = qnn.QuantConv2d(mid_channels, 1, kernel_size=3, padding=1, bias=False,
                                      weight_bit_width=weight_bit_width)
-        self.sigmoid = qnn.QuantSigmoid(bit_width=act_bit_width, return_quant_tensor=True)
+        # Replace QuantSigmoid with nn.Sigmoid
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         # Input x assumed to be QuantTensor
@@ -44,10 +45,10 @@ class QuantCSAM(nn.Module):
         y = self.conv1(y)
         # conv2 receives QuantTensor from conv1
         y = self.conv2(y)
-        # sigmoid receives QuantTensor from conv2
-        y = self.sigmoid(y)
-        # Element-wise multiplication: x (QuantTensor) * y (QuantTensor)
-        return x * y
+        # Apply standard Sigmoid to the float value of y
+        y_sigmoid_float = self.sigmoid(y.value) # y.value gives float tensor
+        # Element-wise multiplication: x (QuantTensor) * y_sigmoid_float (float Tensor)
+        return x * y_sigmoid_float
 
 class QuantCDCM(nn.Module):
     """ Quantized Compact Dilation Convolution based Module """
