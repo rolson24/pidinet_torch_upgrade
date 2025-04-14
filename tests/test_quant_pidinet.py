@@ -9,7 +9,6 @@ sys.path.insert(0, project_root)
 
 from models.pidinet import pidinet_micro_converted, pidinet_tiny_converted, pidinet_small_converted, pidinet_converted
 from models.quant_pidinet import quant_pidinet_micro, quant_pidinet_tiny, quant_pidinet_small, quant_pidinet
-from models.convert_pidinet import convert_pdc
 from models.config import config_model_converted
 
 def test_quant_vs_converted(args):
@@ -49,70 +48,25 @@ def test_quant_vs_converted(args):
     quant_state_dict = quant_model.state_dict()
     converted_state_dict = converted_model.state_dict()
     new_converted_state_dict = {}
-    pdcs_types = config_model_converted(args.config)
-
-    pdc_weight_map = {
-        'init_block.weight': pdcs_types[0],
-        'block1_1.conv1.weight': pdcs_types[1],
-        'block1_2.conv1.weight': pdcs_types[2],
-        'block1_3.conv1.weight': pdcs_types[3],
-        'block2_1.conv1.weight': pdcs_types[4],
-        'block2_2.conv1.weight': pdcs_types[5],
-        'block2_3.conv1.weight': pdcs_types[6],
-        'block2_4.conv1.weight': pdcs_types[7],
-        'block3_1.conv1.weight': pdcs_types[8],
-        'block3_2.conv1.weight': pdcs_types[9],
-        'block3_3.conv1.weight': pdcs_types[10],
-        'block3_4.conv1.weight': pdcs_types[11],
-        'block4_1.conv1.weight': pdcs_types[12],
-        'block4_2.conv1.weight': pdcs_types[13],
-        'block4_3.conv1.weight': pdcs_types[14],
-        'block4_4.conv1.weight': pdcs_types[15],
-    }
 
     for name, param_quant in quant_state_dict.items():
         if name in converted_state_dict:
             # Extract float value from Brevitas quantized tensor
-            # Brevitas parameters might be wrapped, access .value if it's a QuantTensor
             if hasattr(param_quant, 'value'):
                  float_param = param_quant.value.detach().clone()
             else:
-                 # Handle cases where it might be a regular tensor (e.g. running mean/var in BN if used)
-                 # Or if bias is not quantized explicitly
                  float_param = param_quant.detach().clone()
 
-
-            # Check if this weight needs PDC conversion
-            if name in pdc_weight_map:
-                pdc_type = pdc_weight_map[name]
-                print(f"Converting weight {name} using PDC type: {pdc_type}")
-                converted_weight = convert_pdc(pdc_type, float_param)
-                # Ensure the shape matches the target converted model's layer
-                if converted_weight.shape == converted_state_dict[name].shape:
-                    new_converted_state_dict[name] = converted_weight
-                else:
-                    print(f"Warning: Shape mismatch for {name} after conversion. "
-                          f"Quant: {float_param.shape}, "
-                          f"Converted PDC: {converted_weight.shape}, "
-                          f"Target: {converted_state_dict[name].shape}. Skipping.")
-                    # Keep original random weight in converted model if shapes mismatch
-                    new_converted_state_dict[name] = converted_state_dict[name]
-
-            # Handle other weights/biases (shortcuts, conv2, classifier, etc.)
-            # Check for potential naming differences (e.g., bias vs .bias)
-            elif name.endswith('.bias') and name in converted_state_dict:
-                 new_converted_state_dict[name] = float_param
-            elif name.endswith('.weight') and name in converted_state_dict:
-                 # Check if it's a weight that doesn't need PDC conversion
-                 if name not in pdc_weight_map:
-                     new_converted_state_dict[name] = float_param
+            # Directly assign the float parameter if shapes match
+            if float_param.shape == converted_state_dict[name].shape:
+                new_converted_state_dict[name] = float_param
+                # print(f"Synchronized {name}") # Optional: for debugging
             else:
-                 # Catch any other parameters that match directly
-                 if name in converted_state_dict and float_param.shape == converted_state_dict[name].shape:
-                    new_converted_state_dict[name] = float_param
-                 # else:
-                 #    print(f"Skipping parameter {name} (not found or shape mismatch in converted model)")
-
+                print(f"Warning: Shape mismatch for {name}. "
+                      f"Quant: {float_param.shape}, "
+                      f"Target: {converted_state_dict[name].shape}. Skipping.")
+                # Keep original random weight in converted model if shapes mismatch
+                new_converted_state_dict[name] = converted_state_dict[name]
 
         # else:
         #     print(f"Parameter {name} from quant_model not found in converted_model state_dict.")
