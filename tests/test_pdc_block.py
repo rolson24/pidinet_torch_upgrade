@@ -3,6 +3,7 @@ import argparse
 import sys
 import os
 import brevitas.nn as qnn
+import torch.nn as nn # Import nn for nn.Conv2d
 
 # Add project root to Python path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -25,6 +26,32 @@ def test_pdc_blocks(args):
     outplane_same = args.inplane # For stride=1, same channel test
     outplane_diff = args.inplane * 2 # For stride=2 test
 
+    # --- Create a consistent initial dummy input ---
+    # Use the larger size that causes failure in the other test
+    initial_input_channels = 3 # Simulate input to init_block
+    initial_dummy_input_float = torch.randn(1, initial_input_channels, 256, 256)
+
+    # --- Simulate Previous Layer (e.g., init_block) ---
+    print("Simulating preceding layer...")
+    # Use kernel size 3, padding 1 as a common case (adjust if needed based on config)
+    dummy_quant_prev_layer = qnn.QuantConv2d(initial_input_channels, inplane, kernel_size=3, padding=1, bias=False,
+                                             weight_bit_width=args.weight_bits)
+    dummy_float_prev_layer = nn.Conv2d(initial_input_channels, inplane, kernel_size=3, padding=1, bias=False)
+
+    # Synchronize weights of the dummy previous layers
+    sync_weights(dummy_quant_prev_layer, dummy_float_prev_layer, "Dummy Previous Layer")
+
+    # Generate inputs for the actual blocks to be tested
+    dummy_quant_prev_layer.eval()
+    dummy_float_prev_layer.eval()
+    with torch.no_grad():
+        # Input for QuantPDCBlock comes from the dummy QuantConv2d
+        input_for_quant_block = dummy_quant_prev_layer(initial_dummy_input_float)
+        # Input for PDCBlock_converted comes from the dummy nn.Conv2d
+        input_for_converted_block = dummy_float_prev_layer(initial_dummy_input_float)
+    print("Preceding layer simulation complete.")
+
+
     # --- Test Stride = 1 ---
     print("\n--- Testing Stride = 1 ---")
     quant_block_s1 = QuantPDCBlock(args.pdc_type, inplane, outplane_same, stride=1,
@@ -32,12 +59,11 @@ def test_pdc_blocks(args):
     converted_block_s1 = PDCBlock_converted(args.pdc_type, inplane, outplane_same, stride=1)
 
     # Synchronize weights
-    sync_block_weights(quant_block_s1, converted_block_s1)
+    sync_weights(quant_block_s1, converted_block_s1, "Block Stride=1") # Use generic sync function
 
-    # Create inputs
-    dummy_input_float_s1 = torch.randn(1, inplane, 64, 64) # Smaller size for block test
-    input_quantizer_s1 = qnn.QuantIdentity(bit_width=args.act_bits, return_quant_tensor=True)
-    dummy_input_quant_s1 = input_quantizer_s1(dummy_input_float_s1)
+    # Use generated inputs
+    dummy_input_quant_s1 = input_for_quant_block
+    dummy_input_float_s1 = input_for_converted_block
 
     # Run inference
     quant_block_s1.eval()
@@ -56,12 +82,11 @@ def test_pdc_blocks(args):
     converted_block_s2 = PDCBlock_converted(args.pdc_type, inplane, outplane_diff, stride=2)
 
     # Synchronize weights
-    sync_block_weights(quant_block_s2, converted_block_s2)
+    sync_weights(quant_block_s2, converted_block_s2, "Block Stride=2") # Use generic sync function
 
-    # Create inputs (use same float input as stride 1)
-    dummy_input_float_s2 = dummy_input_float_s1
-    input_quantizer_s2 = qnn.QuantIdentity(bit_width=args.act_bits, return_quant_tensor=True)
-    dummy_input_quant_s2 = input_quantizer_s2(dummy_input_float_s2)
+    # Use generated inputs (same inputs as stride 1 test)
+    dummy_input_quant_s2 = input_for_quant_block
+    dummy_input_float_s2 = input_for_converted_block
 
     # Run inference
     quant_block_s2.eval()
@@ -74,33 +99,40 @@ def test_pdc_blocks(args):
     compare_outputs(quant_output_s2, converted_output_s2, "Stride=2")
 
 
-def sync_block_weights(quant_block, converted_block):
-    """Synchronizes weights between a QuantPDCBlock and PDCBlock_converted."""
-    print("Synchronizing block weights...")
-    quant_block_state_dict = quant_block.state_dict()
-    converted_block_state_dict = converted_block.state_dict()
-    new_converted_block_state_dict = {}
+# Rename sync_block_weights to be more generic
+def sync_weights(quant_module, float_module, module_name="Module"):
+    """Synchronizes weights between a quantized module and its float equivalent."""
+    print(f"Synchronizing weights for {module_name}...")
+    quant_state_dict = quant_module.state_dict()
+    float_state_dict = float_module.state_dict()
+    new_float_state_dict = {}
 
-    for name, param_quant in quant_block_state_dict.items():
-        if name in converted_block_state_dict:
+    # Use float module's keys as reference to handle potential extra keys in quant state_dict (like scaling factors)
+    for name, param_float in float_state_dict.items():
+        # Find corresponding parameter in quant_state_dict
+        # Parameter names should match exactly between qnn.Conv2d and nn.Conv2d (e.g., 'weight')
+        if name in quant_state_dict:
+            param_quant = quant_state_dict[name]
             if hasattr(param_quant, 'value'):
-                 float_param = param_quant.value.detach().clone()
+                 float_param_from_quant = param_quant.value.detach().clone()
             else:
-                 float_param = param_quant.detach().clone()
+                 # Handle cases where quant param might not have .value (e.g., bias if not quantized)
+                 # Or if the layer itself isn't a Brevitas layer (though less likely here)
+                 float_param_from_quant = param_quant.detach().clone()
 
-            if float_param.shape == converted_block_state_dict[name].shape:
-                new_converted_block_state_dict[name] = float_param
+            if float_param_from_quant.shape == param_float.shape:
+                new_float_state_dict[name] = float_param_from_quant
             else:
-                print(f"Warning: Shape mismatch for {name}. Q:{float_param.shape}, C:{converted_block_state_dict[name].shape}. Skipping.")
-                new_converted_block_state_dict[name] = converted_block_state_dict[name]
+                print(f"Warning: Shape mismatch for {name} in {module_name}. "
+                      f"Quant: {float_param_from_quant.shape}, Float: {param_float.shape}. Using original float param.")
+                new_float_state_dict[name] = param_float # Keep original if shapes mismatch
+        else:
+             print(f"Warning: Parameter {name} from float module not found in quant module {module_name}. Using original float param.")
+             new_float_state_dict[name] = param_float # Keep original if not found
 
-    for key in converted_block_state_dict.keys():
-        if key not in new_converted_block_state_dict:
-            print(f"Warning: Key {key} not found in sync dict, using original.")
-            new_converted_block_state_dict[key] = converted_block_state_dict[key]
-
-    converted_block.load_state_dict(new_converted_block_state_dict)
-    print("Block weight synchronization complete.")
+    # Load the synchronized state dict
+    float_module.load_state_dict(new_float_state_dict)
+    print(f"Weight synchronization complete for {module_name}.")
 
 
 def compare_outputs(quant_output, converted_output, test_name):
@@ -128,9 +160,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Test QuantPDCBlock vs PDCBlock_converted')
     parser.add_argument('--pdc-type', type=str, default='ad', choices=['cv', 'cd', 'ad', 'rd'],
                         help='PDC type to test')
-    parser.add_argument('--inplane', type=int, default=12, help='Input channels')
-    parser.add_argument('--weight-bits', type=int, default=8, help='Default weight bit width')
-    parser.add_argument('--act-bits', type=int, default=8, help='Default activation bit width')
+    parser.add_argument('--inplane', type=int, default=12, help='Input channels for the block')
+    parser.add_argument('--weight-bits', type=int, default=32, help='Default weight bit width') # Default to 32 for testing
+    parser.add_argument('--act-bits', type=int, default=32, help='Default activation bit width') # Default to 32 for testing
 
     args = parser.parse_args()
     test_pdc_blocks(args)
