@@ -46,6 +46,9 @@ coverage.xml
 *.cover
 .hypothesis/
 
+# Model training logs
+generated_maps/table5*.txt
+
 # Translations
 *.mo
 *.pot

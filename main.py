@@ -288,9 +288,11 @@ def train(train_loader, model, optimizer, epoch, running_file, args, running_lr)
                 loss += cross_entropy_loss_RCF(o, label, args.lmbda)
 
         counter += 1
-        loss_value += loss.item()
+
         # loss = loss / args.iter_size
+        # print("training data shape: ", image.size())
         loss = loss / (args.iter_size * image.size(0))
+        loss_value += loss.item()
 
         loss.backward()
         if counter == args.iter_size:

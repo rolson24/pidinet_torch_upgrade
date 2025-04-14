@@ -281,6 +281,11 @@ class PiDiNet(nn.Module):
         return outputs
 
 
+def pidinet_micro(args):
+    pdcs = config_model(args.config)
+    dil = 4 if args.dil else None
+    return PiDiNet(12, pdcs, dil=dil, sa=args.sa)
+
 def pidinet_tiny(args):
     pdcs = config_model(args.config)
     dil = 8 if args.dil else None
@@ -299,6 +304,10 @@ def pidinet(args):
 
 
 ## convert pidinet to vanilla cnn
+def pidinet_micro_converted(args):
+    pdcs = config_model_converted(args.config)
+    dil = 4 if args.dil else None
+    return PiDiNet(12, pdcs, dil=dil, sa=args.sa, convert=True)
 
 def pidinet_tiny_converted(args):
     pdcs = config_model_converted(args.config)

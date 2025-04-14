@@ -50,16 +50,24 @@ class BSDS_Loader(data.Dataset):
     """
     Dataloader BSDS500
     """
-    def __init__(self, root='data/HED-BSDS', split='train', transform=False, threshold=0.3, ablation=False):
+    def __init__(self, root='data/HED-BSDS', split='train', transform=False, threshold=0.3, ablation=False, fixed_size=None):
         self.root = root
         self.split = split
         self.threshold = threshold * 256
+        self.fixed_size = fixed_size
         print('Threshold for ground truth: %f on BSDS' % self.threshold)
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                          std=[0.229, 0.224, 0.225])
-        self.transform = transforms.Compose([
-            transforms.ToTensor(),
-            normalize])
+        
+        self.to_tensor = transforms.ToTensor()
+        
+        transform_list = [self.to_tensor, normalize]
+        if fixed_size is not None:
+            self.resize = transforms.Resize(fixed_size, transforms.InterpolationMode.BILINEAR)
+            transform_list.insert(1, self.resize)
+
+        self.transform = transforms.Compose(transform_list)
+
         if self.split == 'train':
             if ablation:
                 self.filelist = os.path.join(self.root, 'train200_pair.lst')
@@ -83,15 +91,34 @@ class BSDS_Loader(data.Dataset):
             img_file, lb_file = self.filelist[index].split()
             img_file = img_file.strip()
             lb_file = lb_file.strip()
-            lb = np.array(Image.open(os.path.join(self.root, lb_file)), dtype=np.float32)
-            if lb.ndim == 3:
-                lb = np.squeeze(lb[:, :, 0])
-            assert lb.ndim == 2
+            # lb = np.array(Image.open(os.path.join(self.root, lb_file)), dtype=np.float32)
+            lb = Image.open(os.path.join(self.root, lb_file))
+            lb = self.to_tensor(lb)
+
+            # print("label shape: ", lb.size())
+
+            # Resize
+            if self.fixed_size is not None:
+                lb = self.resize(lb)
+            
+            # print("label shape after reshape: ", lb.size())
+
+            if lb.dim() == 3:
+                lb = lb[0, :, :]
+            assert lb.dim() == 2
+
+            # print("label shape after dim change: ", lb.size())
+
+                
+
             threshold = self.threshold
-            lb = lb[np.newaxis, :, :]
-            lb[lb == 0] = 0
-            lb[np.logical_and(lb>0, lb<threshold)] = 2
-            lb[lb >= threshold] = 1
+            # lb = lb[np.newaxis, :, :]
+            lb = torch.unsqueeze(lb, 0)
+            # lb[lb == 0] = 0
+            # lb[np.logical_and(lb>0, lb<threshold)] = 2
+            # lb[lb >= threshold] = 1
+            lb = torch.where(lb > 0, 2, lb)
+            lb = torch.where(lb >= threshold, 1, lb)
             
         else:
             img_file = self.filelist[index].rstrip()
@@ -112,16 +139,25 @@ class BSDS_VOCLoader(data.Dataset):
     """
     Dataloader BSDS500
     """
-    def __init__(self, root='data/HED-BSDS_PASCAL', split='train', transform=False, threshold=0.3, ablation=False):
+    def __init__(self, root='data/HED-BSDS_PASCAL', split='train', transform=False, threshold=0.3, ablation=False, fixed_size=None):
         self.root = root
         self.split = split
         self.threshold = threshold * 256
+        self.fixed_size = fixed_size
+        print("fixed size: ", self.fixed_size)
+        
         print('Threshold for ground truth: %f on BSDS_VOC' % self.threshold)
         normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                          std=[0.229, 0.224, 0.225])
-        self.transform = transforms.Compose([
-            transforms.ToTensor(),
-            normalize])
+        self.to_tensor = transforms.ToTensor()
+        
+        transform_list = [self.to_tensor, normalize]
+        if fixed_size is not None:
+            self.resize = transforms.Resize(fixed_size, transforms.InterpolationMode.BILINEAR)
+            transform_list.insert(1, self.resize)
+
+        self.transform = transforms.Compose(transform_list)
+
         if self.split == 'train':
             if ablation:
                 self.filelist = os.path.join(self.root, 'bsds_pascal_train200_pair.lst')
@@ -145,15 +181,57 @@ class BSDS_VOCLoader(data.Dataset):
             img_file, lb_file = self.filelist[index].split()
             img_file = img_file.strip()
             lb_file = lb_file.strip()
+
             lb = np.array(Image.open(os.path.join(self.root, lb_file)), dtype=np.float32)
-            if lb.ndim == 3:
-                lb = np.squeeze(lb[:, :, 0])
-            assert lb.ndim == 2
+
+            lb = torch.from_numpy(lb)
+
+            # print("torch label shape: ", lb.size())
+            # print("torch dtype: ", lb.dtype)
+
+            if lb.dim() == 3:
+                lb = torch.permute(lb, (2, 0, 1))[0, :, :]
+            
+            lb = torch.unsqueeze(lb, 0)
+            assert lb.size()[0] == 1
+
+
+            # print("label shape after dim change: ", lb.size())
+
+            # Resize
+            if self.fixed_size is not None:
+                lb = self.resize(lb)
+            
+            # print("label shape after reshape: ", lb.size())
+
+
             threshold = self.threshold
-            lb = lb[np.newaxis, :, :]
-            lb[lb == 0] = 0
-            lb[np.logical_and(lb>0, lb<threshold)] = 2
-            lb[lb >= threshold] = 1
+            # lb = torch.unsqueeze(lb, 0)
+            # lb = torch.permute(lb, (2, 0, 1))
+            lb = torch.where(lb == 0, 0, lb)
+            lb = torch.where((lb > 0) & (lb < threshold), 2, lb)
+            lb = torch.where(lb >= threshold, 1, lb)
+            
+            # lb_torch = lb
+            # print("torch final label shape: ", lb_torch.shape)
+
+            # lb = np.array(Image.open(os.path.join(self.root, lb_file)), dtype=np.float32)
+            # # print("numpy label shape: ", lb.shape)
+            # if lb.ndim == 3:
+            #     lb = np.squeeze(lb[:, :, 0])
+            # assert lb.ndim == 2
+            # threshold = self.threshold
+            # lb = lb[np.newaxis, :, :]
+            # lb[lb == 0] = 0
+            # lb[np.logical_and(lb>0, lb<threshold)] = 2
+            # lb[lb >= threshold] = 1
+            # print("numpy final label shape: ", lb.shape)
+
+
+            # # get the difference between lb and lb_torch
+            # print("sum lb: ", np.sum(lb))
+            # print("sum lb torch: ", np.sum(lb_torch.numpy(force=True)))
+            # assert np.sum(lb) == np.sum(lb_torch.numpy(force=True))
             
         else:
             img_file = self.filelist[index].rstrip()
@@ -162,6 +240,8 @@ class BSDS_VOCLoader(data.Dataset):
             img = Image.open(f)
             img = img.convert('RGB')
         img = self.transform(img)
+
+        # print("input image shape: ", img.size())
 
         if self.split == "train":
             return img, lb
