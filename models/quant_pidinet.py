@@ -224,6 +224,9 @@ class QuantPiDiNet(nn.Module):
             for i in range(4):
                 self.conv_reduces.append(QuantMapReduce(self.fuseplanes[i], weight_bit_width=weight_bit_width))
 
+        # Add QuantIdentity layer to handle concatenation before classifier
+        self.quant_cat = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
+
         # Final Classifier
         self.classifier = qnn.QuantConv2d(4, 1, kernel_size=1,
                                           weight_bit_width=weight_bit_width,
@@ -294,15 +297,17 @@ class QuantPiDiNet(nn.Module):
         e4 = F.interpolate(e4, (H, W), mode="bilinear", align_corners=False)
 
         # Classifier and Final Output
-        # Concatenation might need explicit quantization if scales differ significantly
-        # cat_out = self.requant_cat(torch.cat([e1, e2, e3, e4], dim=1)) # Example if needed
+        # Concatenate the interpolated (standard) tensors
         cat_out = torch.cat([e1, e2, e3, e4], dim=1)
-        output = self.classifier(cat_out)
+        # Requantize the concatenated tensor before feeding to the classifier
+        quant_cat_out = self.quant_cat(cat_out)
+        output = self.classifier(quant_cat_out)
 
         # Apply final sigmoid quantization
         # The intermediate outputs e1..e4 might also need sigmoid for training loss
+        # Note: e1..e4 are standard tensors here after interpolation
         outputs = [self.final_sigmoid(e) for e in [e1, e2, e3, e4]]
-        outputs.append(self.final_sigmoid(output))
+        outputs.append(self.final_sigmoid(output)) # output is already processed by final_sigmoid
 
         # Return float tensors for compatibility with existing loss functions
         # Brevitas QuantTensor can be used directly if loss supports it,
