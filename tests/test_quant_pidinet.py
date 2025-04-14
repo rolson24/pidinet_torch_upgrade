@@ -29,17 +29,17 @@ def get_activation(name, activations_dict):
 
 def test_quant_vs_converted(args):
     """
-    Tests if the QuantPiDiNet.block1_1 output matches the converted
-    PiDiNet.block1_1 output when using equivalent weights and the same input.
+    Tests if the QuantPiDiNet.init_block output matches the converted
+    PiDiNet.init_block output when using equivalent weights and the same input.
     """
-    print("Starting test: QuantPiDiNet.block1_1 vs Converted PiDiNet.block1_1")
+    # Modify test description
+    print("Starting test: QuantPiDiNet.init_block vs Converted PiDiNet.init_block")
     print(f"Args: {args}")
 
-    # --- Instantiate Full Models (to get configured submodules) ---
-    print("Instantiating full models to extract block1_1...")
-    # Quantized Model
+    # --- Instantiate Full Models ---
+    print("Instantiating full models to extract init_block...")
+    # ... (model instantiation logic remains the same) ...
     if args.model == 'quant_pidinet_micro':
-        quant_model_full = quant_pidinet_micro(args, weight_bit_width=args.weight_bits, act_bit_width=args.act_bits)
         converted_model_func = pidinet_micro_converted
         inplane = 12 # Input channels for block1_1 in micro model
     elif args.model == 'quant_pidinet_tiny':
