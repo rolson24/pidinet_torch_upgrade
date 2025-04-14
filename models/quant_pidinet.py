@@ -129,7 +129,7 @@ class QuantPDCBlock(nn.Module):
     def forward(self, x):
         # Input x assumed to be QuantTensor
         input_to_conv1 = x # Default to original input for stride=1
-        identity = x # Uncomment: Store original input for residual
+        identity = x # Store original input for residual
 
         if self.stride > 1:
             # Pool the float value
@@ -139,7 +139,8 @@ class QuantPDCBlock(nn.Module):
             # Apply shortcut to the pooled float, QuantConv2d handles input quantization
             identity = self.shortcut(x_pooled) # Uncomment and apply shortcut to pooled value
         elif hasattr(self, 'shortcut'): # Apply shortcut if it exists (stride=1, channels changed or identity)
-             identity = self.shortcut(identity) # Uncomment
+             # Pass float value to shortcut layer for consistency
+             identity = self.shortcut(identity.value)
 
         # conv1 receives either original x (QuantTensor) or x_pooled (float Tensor)
         y = self.conv1(input_to_conv1)
