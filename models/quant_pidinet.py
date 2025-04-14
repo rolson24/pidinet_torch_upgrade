@@ -91,12 +91,12 @@ class QuantPDCBlock(nn.Module):
     def __init__(self, pdc_type, inplane, ouplane, stride=1, act_bit_width=DEFAULT_ACT_BIT_WIDTH, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH):
         super(QuantPDCBlock, self).__init__()
         self.stride = stride
+        self.act_bit_width = act_bit_width # Store for requantization
 
         if self.stride > 1:
-            # Use MaxPool2d - Brevitas doesn't have QuantMaxPool2d, pooling usually doesn't change scale significantly
-            # Or use AvgPool2d which might be better for quantization scale propagation
             self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-            # self.pool = qnn.QuantAvgPool2d(kernel_size=2, stride=2, bit_width=act_bit_width, return_quant_tensor=True) # Alternative
+            # Add quantizer after pooling
+            self.quant_pool = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
             self.shortcut = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
                                             weight_bit_width=weight_bit_width)
         else:
@@ -128,13 +128,14 @@ class QuantPDCBlock(nn.Module):
         # Input x assumed to be QuantTensor
         identity = x
         if self.stride > 1:
-            x = self.pool(x)
-            identity = self.shortcut(x) # Apply shortcut to pooled input
+            x_pooled = self.pool(x.value) # Pool the float value
+            x = self.quant_pool(x_pooled) # Requantize the result
+            identity = self.shortcut(x) # Shortcut now operates on QuantTensor
         elif hasattr(self, 'shortcut'):
              identity = self.shortcut(identity) # Apply shortcut if it exists (e.g., channel change)
 
 
-        y = self.conv1(x)
+        y = self.conv1(x) # conv1 now always receives QuantTensor
         y = self.relu2(y)
         y = self.conv2(y)
 
