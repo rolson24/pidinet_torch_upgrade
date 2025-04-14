@@ -100,11 +100,8 @@ def test_quant_vs_converted(args):
     # --- Generate Inputs for Block1_1 using Init_Blocks ---
     print("Generating inputs for block1_1 using init_blocks...")
     with torch.no_grad():
-        # Input for quant_block comes from quant_init_block
-        # Need to quantize the initial float input first for quant_init_block
-        # Use the input quantizer from the full quant model
-        initial_input_quant = quant_model_full.quant_inp(initial_dummy_input_float)
-        input_for_quant_block = quant_init_block(initial_input_quant)
+        # Pass float input directly to quant_init_block, relying on its input quantizer
+        input_for_quant_block = quant_init_block(initial_dummy_input_float)
 
         # Input for converted_block comes from converted_init_block
         input_for_converted_block = converted_init_block(initial_dummy_input_float)
