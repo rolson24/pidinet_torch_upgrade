@@ -90,24 +90,25 @@ class QuantCDCM(nn.Module):
 
 class QuantMapReduce(nn.Module):
     """ Quantized Reduce feature maps into a single edge map """
-    def __init__(self, channels, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH, act_bit_width=DEFAULT_ACT_BIT_WIDTH): # act_bit_width might not be needed now
+    def __init__(self, channels, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH, act_bit_width=DEFAULT_ACT_BIT_WIDTH): # act_bit_width is needed
         super(QuantMapReduce, self).__init__()
-        # Remove input requantization layer
-        # self.requant_add = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
+        # Re-add input requantization layer to ensure scale is available for BiasQuant
+        self.requant_input = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv = qnn.QuantConv2d(channels, 1, kernel_size=1, padding=0,
                                     weight_bit_width=weight_bit_width,
                                     bias=True, # Ensure bias exists
-                                    bias_quant=BiasQuant, # Re-enable bias quantization
-                                    cache_inference_quant_bias=True) # Re-enable cache
+                                    bias_quant=BiasQuant, # Bias quantization enabled
+                                    cache_inference_quant_bias=True) # Cache enabled
         # Initialize bias to 0, matching original MapReduce
         if self.conv.bias is not None:
             nn.init.constant_(self.conv.bias, 0)
 
     def forward(self, x): # Input x: QuantTensor or float Tensor
-        # REMOVED: x = self.requant_add(x) # Requantize input
-        # conv handles QuantTensor or float Tensor input via its own input quantizer
+        # Ensure input is explicitly quantized before conv layer
+        x_quant = self.requant_input(x)
+        # Now conv receives a QuantTensor with a scale from requant_input
         # Output will be QuantTensor
-        return self.conv(x)
+        return self.conv(x_quant)
 
 
 class QuantPDCBlock(nn.Module):
