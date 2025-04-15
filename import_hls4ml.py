@@ -9,10 +9,14 @@ from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNode
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.infer_datatypes import InferDataTypes
-# Import the specific channels last transform
-from qonnx.transformation.channels_last import ConvertToChannelsLast
-# Keep the combined one commented out
-# from qonnx.transformation.channels_last import ConvertToChannelsLastAndClean
+# Import the combined transformation again
+from qonnx.transformation.channels_last import ConvertToChannelsLastAndClean
+# Import potentially helpful streamlining transformations
+from qonnx.transformation.streamline import Streamline
+from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from qonnx.transformation.general import ConvertSubToAdd, ConvertDivToMul
+from qonnx.transformation.batchnorm_to_affine import AbsorbBNIntoConv, AbsorbScalarMulAddIntoConv
+
 
 def main():
     parser = argparse.ArgumentParser(description="Import ONNX model into hls4ml")
@@ -34,14 +38,28 @@ def main():
     print("\nApplying QONNX transformations...")
     total_transform_start_time = time.time()
 
-    # --- Initial Cleanup ---
-    print("Step 1: Initial Cleanup & Shape Inference...")
+    # --- Initial Cleanup & Simplification ---
+    print("Step 1: Initial Cleanup, Simplification & Shape Inference...")
     step_start_time = time.time()
+    # Basic cleanup
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(RemoveStaticGraphInputs())
+    # Try additional streamlining/conversion before channels last
+    # Note: Some of these might not apply or might change behavior slightly,
+    # monitor results carefully. Comment out if they cause issues.
+    # model = model.transform(Streamline()) # Applies several cleanups
+    # model = model.transform(LowerConvsToMatMul()) # May help if Conv is the issue, but changes structure
+    # model = model.transform(ConvertSubToAdd())
+    # model = model.transform(ConvertDivToMul())
+    # model = model.transform(AbsorbScalarMulAddIntoConv()) # If applicable
+    # model = model.transform(AbsorbBNIntoConv()) # If applicable
+
+    # Re-run basic cleanup after potential changes
+    model = model.transform(InferShapes())
+    model = model.transform(FoldConstants())
     print(f"  Step 1 took: {time.time() - step_start_time:.2f} seconds")
 
     # --- Save model before channels last conversion ---
@@ -49,18 +67,18 @@ def main():
     try:
         model.save(pre_channels_last_path)
         print(f"  Model state before channels last saved to: {pre_channels_last_path}")
-        print("  You can inspect this model with Netron.")
+        print("  --> Use Netron to inspect this file ('pre_channels_last_...onnx') to see the graph structure causing issues in Step 2.")
     except Exception as e:
         print(f"  WARNING: Could not save pre-channels-last model: {e}")
 
 
-    # --- Convert to Channels Last (Broken Down) ---
-    print("Step 2a: Applying ConvertToChannelsLast...")
+    # --- Convert to Channels Last using the combined transform ---
+    print("Step 2: Applying ConvertToChannelsLastAndClean...")
     step_start_time = time.time()
     try:
-        # Apply only the core channels last conversion
-        model = model.transform(ConvertToChannelsLast())
-        print(f"  Step 2a (ConvertToChannelsLast) took: {time.time() - step_start_time:.2f} seconds")
+        # Use the combined transformation
+        model = model.transform(ConvertToChannelsLastAndClean())
+        print(f"  Step 2 (ConvertToChannelsLastAndClean) took: {time.time() - step_start_time:.2f} seconds")
         # Save model immediately after this step if it completes
         post_channels_last_path = os.path.join(os.path.dirname(args.onnx_model), "post_channels_last_" + os.path.basename(args.onnx_model))
         try:
@@ -70,24 +88,11 @@ def main():
             print(f"  WARNING: Could not save post-channels-last model: {e}")
 
     except Exception as e:
-        print(f"  ERROR during ConvertToChannelsLast: {e}")
+        print(f"  ERROR during ConvertToChannelsLastAndClean: {e}")
         print(f"  Time before error: {time.time() - step_start_time:.2f} seconds")
+        print(f"  Inspect the saved 'pre_channels_last_...onnx' model to debug.")
         return # Exit if this critical step fails
 
-    print("Step 2b: Applying Cleanup after Channels Last (InferShapes, FoldConstants)...")
-    step_start_time = time.time()
-    try:
-        # Apply cleanup steps that are part of ConvertToChannelsLastAndClean
-        model = model.transform(InferShapes())
-        print(f"    InferShapes took: {time.time() - step_start_time:.2f} seconds")
-        fold_start_time = time.time()
-        model = model.transform(FoldConstants())
-        print(f"    FoldConstants took: {time.time() - fold_start_time:.2f} seconds")
-        print(f"  Step 2b (Cleanup after Channels Last) took: {time.time() - step_start_time:.2f} seconds")
-    except Exception as e:
-        print(f"  ERROR during Cleanup after Channels Last: {e}")
-        print(f"  Time before error: {time.time() - step_start_time:.2f} seconds")
-        return # Exit if cleanup fails
 
     # --- Final Cleanup ---
     print("Step 3: Final Cleanup & DataType Inference...")
