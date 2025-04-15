@@ -30,14 +30,7 @@ def main():
     dummy_args.sa = True
     dummy_args.dil = True
 
-    model = load_model(argparse.Namespace(
-        model=args.model,
-        config=args.config,
-        sa=dummy_args.sa,
-        dil=dummy_args.dil,
-        weight_bits=args.weight_bits,
-        act_bits=args.act_bits
-    ))
+    model = load_model(args)
 
     dummy_input = torch.randn(1, *args.input_shape)
     torch.onnx.export(
