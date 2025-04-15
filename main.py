@@ -16,6 +16,8 @@ import argparse
 import os
 import time
 import models
+# Import quantized models if needed later
+import models.quant_pidinet as quant_models
 from models.convert_pidinet import convert_pidinet
 from utils import *
 from edge_dataloader import BSDS_VOCLoader, BSDS_Loader, Multicue_Loader, NYUD_Loader, Custom_Loader, custom_collate_fn
@@ -40,8 +42,8 @@ parser.add_argument('--ablation', action='store_true',
 parser.add_argument('--dataset', type=str, default='BSDS',
         help='data settings for BSDS, Multicue and NYUD datasets')
 
-parser.add_argument('--model', type=str, default='baseline', 
-        help='model to train the dataset')
+parser.add_argument('--model', type=str, default='pidinet_converted', # Default to converted float model
+        help='model to train the dataset (e.g., pidinet, pidinet_converted, quant_pidinet_micro)')
 parser.add_argument('--sa', action='store_true', 
         help='use CSAM in pidinet')
 parser.add_argument('--dil', action='store_true', 
@@ -91,6 +93,12 @@ parser.add_argument('--evaluate', type=str, default=None,
 parser.add_argument('--evaluate-converted', action='store_true', 
         help='convert the checkpoint to vanilla cnn, then evaluate')
 
+# Add quantization arguments
+parser.add_argument('--weight-bits', type=int, default=quant_models.DEFAULT_WEIGHT_BIT_WIDTH,
+        help='Weight bit width for quantized models')
+parser.add_argument('--act-bits', type=int, default=quant_models.DEFAULT_ACT_BIT_WIDTH,
+        help='Activation bit width for quantized models')
+
 args = parser.parse_args()
 
 
@@ -120,7 +128,24 @@ def main(running_file):
     print(args)
 
     ### Create model
-    model = getattr(models, args.model)(args)
+    is_quantized = args.model.startswith('quant_')
+    if is_quantized:
+        # Load quantized model
+        print(f"Loading Quantized Model: {args.model}")
+        print(f"Weight Bits: {args.weight_bits}, Activation Bits: {args.act_bits}")
+        if not hasattr(quant_models, args.model):
+             raise ValueError(f"Unknown quantized model: {args.model}")
+        model_factory = getattr(quant_models, args.model)
+        # Pass args and bit-widths to the factory function
+        model = model_factory(args, weight_bit_width=args.weight_bits, act_bit_width=args.act_bits)
+    else:
+        # Load original or converted float model
+        print(f"Loading Float Model: {args.model}")
+        if not hasattr(models, args.model):
+            raise ValueError(f"Unknown float model: {args.model}")
+        model_factory = getattr(models, args.model)
+        model = model_factory(args)
+
 
     ### Output its model size, flops and bops
     if args.checkinfo:
@@ -130,22 +155,32 @@ def main(running_file):
         return
 
     ### Define optimizer
-    conv_weights, bn_weights, relu_weights = model.get_weights()
-    param_groups = [{
-            'params': conv_weights,
+    if is_quantized:
+        # Simpler optimizer setup for quantized models
+        param_groups = [{
+            'params': model.parameters(),
             'weight_decay': args.wd,
-            'lr': args.lr}, {
-            'params': bn_weights,
-            'weight_decay': 0.1 * args.wd,
-            'lr': args.lr}, {
-            'params': relu_weights, 
-            'weight_decay': 0.0,
             'lr': args.lr
-    }]
-    info = ('conv weights: lr %.6f, wd %.6f' + \
-            '\tbn weights: lr %.6f, wd %.6f' + \
-            '\trelu weights: lr %.6f, wd %.6f') % \
-            (args.lr, args.wd, args.lr, args.wd * 0.1, args.lr, 0.0)
+        }]
+        info = ('Quantized Model: All params: lr %.6f, wd %.6f' % (args.lr, args.wd))
+    else:
+        # Original optimizer setup for float models
+        conv_weights, bn_weights, relu_weights = model.get_weights()
+        param_groups = [{
+                'params': conv_weights,
+                'weight_decay': args.wd,
+                'lr': args.lr}, {
+                'params': bn_weights,
+                'weight_decay': 0.1 * args.wd,
+                'lr': args.lr}, {
+                'params': relu_weights,
+                'weight_decay': 0.0,
+                'lr': args.lr
+        }]
+        info = ('Float Model: conv weights: lr %.6f, wd %.6f' + \
+                '\tbn weights: lr %.6f, wd %.6f' + \
+                '\trelu weights: lr %.6f, wd %.6f') % \
+                (args.lr, args.wd, args.lr, args.wd * 0.1, args.lr, 0.0)
 
     print(info)
     running_file.write('\n%s\n' % info)
@@ -205,12 +240,26 @@ def main(running_file):
         checkpoint = load_checkpoint(args, running_file)
         if checkpoint is not None:
             args.start_epoch = checkpoint['epoch'] + 1
-            if args.evaluate_converted:
-                model.load_state_dict(convert_pidinet(checkpoint['state_dict'], args.config))
+            # Handle potential conversion during evaluation if needed
+            if args.evaluate_converted and not is_quantized:
+                 # Load converted float model for evaluation
+                 print("Loading converted float weights for evaluation...")
+                 converted_state_dict = convert_pidinet(checkpoint['state_dict'], args.config)
+                 # Need to instantiate the converted model structure first
+                 converted_model_factory_name = args.model + "_converted"
+                 if not hasattr(models, converted_model_factory_name):
+                      raise ValueError(f"Cannot find converted model factory: {converted_model_factory_name}")
+                 converted_model_factory = getattr(models, converted_model_factory_name)
+                 model = converted_model_factory(args)
+                 if args.use_cuda:
+                      model = torch.nn.DataParallel(model).cuda()
+                 model.load_state_dict(converted_state_dict)
             else:
-                model.load_state_dict(checkpoint['state_dict'])
+                 # Load weights directly (works for float or quantized)
+                 print("Loading weights directly...")
+                 model.load_state_dict(checkpoint['state_dict'])
         else:
-            raise ValueError('no checkpoint loaded')
+            raise ValueError('no checkpoint loaded for evaluation')
         test(test_loader, model, args.start_epoch, running_file, args)
         print('##########Time########## %s' % (time.strftime('%Y-%m-%d %H:%M:%S')))
         return
@@ -220,8 +269,14 @@ def main(running_file):
         checkpoint = load_checkpoint(args, running_file)
         if checkpoint is not None:
             args.start_epoch = checkpoint['epoch'] + 1
+            # Load state dict directly, should work for both float and quantized
             model.load_state_dict(checkpoint['state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
+            # Load optimizer state if structure matches (might need care if switching model types)
+            try:
+                optimizer.load_state_dict(checkpoint['optimizer'])
+            except ValueError as e:
+                print(f"Warning: Could not load optimizer state dict, possibly due to model structure change: {e}")
+                print("Optimizer state will be re-initialized.")
 
 
     ### Train
