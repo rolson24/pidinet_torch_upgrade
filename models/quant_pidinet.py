@@ -89,11 +89,16 @@ class QuantMapReduce(nn.Module):
         super(QuantMapReduce, self).__init__()
         self.conv = qnn.QuantConv2d(channels, 1, kernel_size=1, padding=0,
                                     weight_bit_width=weight_bit_width,
-                                    bias_quant=BiasQuant,
-                                    cache_inference_quant_bias=True) # Bias default True
+                                    bias=True, # Ensure bias exists
+                                    bias_quant=None, # Disable bias quantization
+                                    cache_inference_quant_bias=False)
+        # Initialize bias to 0, matching original MapReduce
+        if self.conv.bias is not None:
+            nn.init.constant_(self.conv.bias, 0)
 
-    def forward(self, x):
-        # Output of this might need sigmoid and quantization, handled later
+    def forward(self, x): # Input x: QuantTensor or float Tensor
+        # conv handles QuantTensor or float Tensor input
+        # Output will be QuantTensor
         return self.conv(x)
 
 
