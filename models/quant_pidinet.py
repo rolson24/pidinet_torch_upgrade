@@ -33,7 +33,8 @@ class QuantCSAM(nn.Module):
 
         self.conv2 = qnn.QuantConv2d(mid_channels, 1, kernel_size=3, padding=1, bias=False,
                                      weight_bit_width=weight_bit_width)
-        self.sigmoid = nn.Sigmoid() # Keep standard Sigmoid
+        # Replace nn.Sigmoid with qnn.QuantSigmoid
+        self.sigmoid = qnn.QuantSigmoid(bit_width=act_bit_width, return_quant_tensor=True) # Return QuantTensor
 
     def forward(self, x): # Input x: QuantTensor
         # Apply standard ReLU -> float Tensor
@@ -42,10 +43,11 @@ class QuantCSAM(nn.Module):
         y = self.quant_relu_out(y_float) # y: QuantTensor
         y = self.conv1(y) # y: QuantTensor
         y = self.conv2(y) # y: QuantTensor
-        # Apply standard Sigmoid directly to QuantTensor y
-        y_sigmoid_float = self.sigmoid(y) # CORRECTED: Removed .value
-        # Multiply original QuantTensor x by float sigmoid output
-        return x * y_sigmoid_float
+        # Apply QuantSigmoid
+        y_sigmoid = self.sigmoid(y) # y_sigmoid is now QuantTensor
+        # Multiply original QuantTensor x by QuantTensor sigmoid output
+        # Brevitas handles QuantTensor * QuantTensor multiplication
+        return x * y_sigmoid
 
 class QuantCDCM(nn.Module):
     """ Quantized Compact Dilation Convolution based Module """

@@ -156,13 +156,32 @@ def main(running_file):
 
     ### Define optimizer
     if is_quantized:
-        # Simpler optimizer setup for quantized models
-        param_groups = [{
-            'params': model.parameters(),
-            'weight_decay': args.wd,
-            'lr': args.lr
-        }]
-        info = ('Quantized Model: All params: lr %.6f, wd %.6f' % (args.lr, args.wd))
+        # Separate parameters for quantized models
+        quant_params = []
+        scale_params = []
+        other_params = []
+        for name, param in model.named_parameters():
+            # Heuristic: Identify scale parameters by name or type if possible
+            # This might need adjustment based on specific Brevitas version/structure
+            if 'scaling_impl' in name or 'scale' in name or 'zero_point' in name:
+                 scale_params.append(param)
+            # Example check for QuantTensor parameters (might not be needed if handled by modules)
+            # elif isinstance(param, torch.Tensor) and hasattr(param, 'is_quantized') and param.is_quantized:
+            #     quant_params.append(param)
+            else:
+                 other_params.append(param)
+
+        param_groups = [
+            {'params': other_params, 'weight_decay': args.wd, 'lr': args.lr},
+            {'params': scale_params, 'weight_decay': 0.0, 'lr': args.lr}, # No WD for scales
+            # {'params': quant_params, 'weight_decay': 0.0, 'lr': args.lr} # Optional: Handle other quant params if needed
+        ]
+        info = ('Quantized Model: Other params: lr %.6f, wd %.6f | Scale params: lr %.6f, wd %.6f'
+                % (args.lr, args.wd, args.lr, 0.0))
+        print(f"Identified {len(other_params)} other parameters.")
+        print(f"Identified {len(scale_params)} scale parameters (no weight decay).")
+        # print(f"Identified {len(quant_params)} quant tensor parameters.")
+
     else:
         # Original optimizer setup for float models
         conv_weights, bn_weights, relu_weights = model.get_weights()
@@ -181,6 +200,7 @@ def main(running_file):
                 '\tbn weights: lr %.6f, wd %.6f' + \
                 '\trelu weights: lr %.6f, wd %.6f') % \
                 (args.lr, args.wd, args.lr, args.wd * 0.1, args.lr, 0.0)
+
 
     print(info)
     running_file.write('\n%s\n' % info)
