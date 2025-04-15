@@ -1,5 +1,6 @@
 import argparse
 import os
+import time # Import time module
 import hls4ml
 import qonnx.core.onnx_exec as oxe
 from qonnx.core.modelwrapper import ModelWrapper
@@ -23,40 +24,65 @@ def main():
     args = parser.parse_args()
 
     print(f"Loading ONNX model: {args.onnx_model}")
+    start_time = time.time()
     model = ModelWrapper(args.onnx_model)
+    print(f"Model loading took: {time.time() - start_time:.2f} seconds")
 
-    print("Applying QONNX transformations (Cleanup, ChannelsLast)...")
-    # Initial cleanup
+    print("\nApplying QONNX transformations...")
+    total_transform_start_time = time.time()
+
+    # --- Initial Cleanup ---
+    print("Step 1: Initial Cleanup & Shape Inference...")
+    step_start_time = time.time()
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(RemoveStaticGraphInputs())
+    print(f"  Step 1 took: {time.time() - step_start_time:.2f} seconds")
 
-    # Convert to Channels Last (important for Conv layers in hls4ml)
-    # Note: ConvertToChannelsLastAndClean includes cleanup steps within it.
-    model = model.transform(ConvertToChannelsLastAndClean())
+    # --- Convert to Channels Last ---
+    print("Step 2: ConvertToChannelsLastAndClean...")
+    step_start_time = time.time()
+    try:
+        model = model.transform(ConvertToChannelsLastAndClean())
+        print(f"  Step 2 took: {time.time() - step_start_time:.2f} seconds")
+    except Exception as e:
+        print(f"  ERROR during ConvertToChannelsLastAndClean: {e}")
+        print(f"  Time before error: {time.time() - step_start_time:.2f} seconds")
+        # Optionally save the model state just before the failing transform
+        pre_channels_last_path = os.path.join(os.path.dirname(args.onnx_model), "pre_channels_last_" + os.path.basename(args.onnx_model))
+        model.save(pre_channels_last_path)
+        print(f"  Model state before error saved to: {pre_channels_last_path}")
+        return # Exit if this critical step fails
 
-    # Final cleanup after channels last conversion
+    # --- Final Cleanup ---
+    print("Step 3: Final Cleanup & DataType Inference...")
+    step_start_time = time.time()
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(RemoveStaticGraphInputs())
     model = model.transform(InferDataTypes())
+    print(f"  Step 3 took: {time.time() - step_start_time:.2f} seconds")
+
+    print(f"\nTotal QONNX transformation time: {time.time() - total_transform_start_time:.2f} seconds")
 
     # Save the cleaned model (optional, for debugging)
     cleaned_model_path = os.path.join(os.path.dirname(args.onnx_model), "cleaned_" + os.path.basename(args.onnx_model))
     model.save(cleaned_model_path)
     print(f"Cleaned QONNX model saved to: {cleaned_model_path}")
 
-    print("Generating hls4ml configuration...")
+    print("\nGenerating hls4ml configuration...")
+    start_time = time.time()
     hls_config = hls4ml.utils.config_from_onnx_model(
         model,
         granularity='name', # Required for QONNX/quantized models
         backend=args.backend,
         default_precision=args.default_precision
     )
+    print(f"Config generation took: {time.time() - start_time:.2f} seconds")
 
     # --- Optional: Modify hls_config here if needed ---
     # For example, setting specific layer precisions or reuse factors:
@@ -66,7 +92,8 @@ def main():
     # hls4ml.utils.print_dict(hls_config)
     # ----------------------------------------------------
 
-    print(f"Converting model to hls4ml project: {args.project_name} in {args.output_dir}")
+    print(f"\nConverting model to hls4ml project: {args.project_name} in {args.output_dir}")
+    start_time = time.time()
     hls_model = hls4ml.converters.convert_from_onnx_model(
         model,
         output_dir=args.output_dir,
@@ -76,10 +103,12 @@ def main():
         io_type=args.io_type,
         hls_config=hls_config,
     )
+    print(f"hls4ml conversion took: {time.time() - start_time:.2f} seconds")
 
-    print("Compiling hls4ml model...")
+    print("\nCompiling hls4ml model...")
+    start_time = time.time()
     hls_model.compile()
-    print("hls4ml model compilation complete.")
+    print(f"hls4ml compilation took: {time.time() - start_time:.2f} seconds")
 
     # --- Optional: Run C Simulation or Build ---
     # print("Running C Simulation...")
@@ -93,7 +122,7 @@ def main():
     # print("HLS build complete.")
     # -------------------------------------------
 
-    print(f"Successfully created and compiled hls4ml project in: {os.path.join(args.output_dir, args.project_name)}")
+    print(f"\nSuccessfully created and compiled hls4ml project in: {os.path.join(args.output_dir, args.project_name)}")
 
 if __name__ == "__main__":
     main()
