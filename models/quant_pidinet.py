@@ -20,9 +20,9 @@ class QuantCSAM(nn.Module):
     def __init__(self, channels, act_bit_width=DEFAULT_ACT_BIT_WIDTH, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH):
         super(QuantCSAM, self).__init__()
         mid_channels = 4
-        self.relu1 = qnn.QuantReLU()
+        self.relu1 = qnn.ReLU()
         # Remove QuantIdentity after ReLU
-        # self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
+        self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv1 = qnn.QuantConv2d(channels, mid_channels, kernel_size=1, padding=0,
                                      weight_bit_width=weight_bit_width,
                                      bias=True, # Ensure bias parameter exists
@@ -40,7 +40,8 @@ class QuantCSAM(nn.Module):
         y_float = self.relu1(x)
         # Pass float Tensor directly to conv1
         # conv1 now expects float input but applies quantized bias
-        y = self.conv1(y_float) # y: QuantTensor
+        y = self.quant_relu_out(y_float) # y: QuantTensor
+        y = self.conv1(y) # y: QuantTensor
         y = self.conv2(y) # y: QuantTensor
         # Apply standard Sigmoid to the float value of y
         y_sigmoid_float = self.sigmoid(y) # Use .value with nn.Sigmoid
@@ -52,7 +53,8 @@ class QuantCDCM(nn.Module):
     def __init__(self, in_channels, out_channels, act_bit_width=DEFAULT_ACT_BIT_WIDTH, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH):
         super(QuantCDCM, self).__init__()
         # Replace QuantReLU with nn.ReLU
-        self.relu1 = qnn.QuantReLU()
+        self.relu1 = nn.ReLU()
+        self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv1 = qnn.QuantConv2d(in_channels, out_channels, kernel_size=1, padding=0,
                                      weight_bit_width=weight_bit_width,
                                      bias=True, # Ensure bias exists
@@ -74,9 +76,10 @@ class QuantCDCM(nn.Module):
     def forward(self, x): # Input x: QuantTensor
         # Apply standard ReLU -> float Tensor
         x_float = self.relu1(x)
+        x = self.quant_relu_out(x_float) # x: QuantTensor
         # Pass float Tensor directly to conv1
         # conv1 now expects float input but applies quantized bias
-        x = self.conv1(x_float) # x: QuantTensor
+        x = self.conv1(x) # x: QuantTensor
         # Pass QuantTensor to dilated convs
         x1 = self.conv2_1(x)
         x2 = self.conv2_2(x)
