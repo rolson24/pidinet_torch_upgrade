@@ -90,8 +90,9 @@ class QuantCDCM(nn.Module):
 
 class QuantMapReduce(nn.Module):
     """ Quantized Reduce feature maps into a single edge map """
-    def __init__(self, channels, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH):
+    def __init__(self, channels, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH, act_bit_width=DEFAULT_ACT_BIT_WIDTH):
         super(QuantMapReduce, self).__init__()
+        self.requant_add = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv = qnn.QuantConv2d(channels, 1, kernel_size=1, padding=0,
                                     weight_bit_width=weight_bit_width,
                                     bias=True, # Ensure bias exists
@@ -242,20 +243,20 @@ class QuantPiDiNet(nn.Module):
             for i in range(4):
                 self.dilations.append(QuantCDCM(self.fuseplanes[i], self.dil, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width))
                 self.attentions.append(QuantCSAM(self.dil, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width))
-                self.conv_reduces.append(QuantMapReduce(self.dil, weight_bit_width=weight_bit_width))
+                self.conv_reduces.append(QuantMapReduce(self.dil, weight_bit_width=weight_bit_width, act_bit_width=act_bit_width))
         elif self.sa:
             self.attentions = nn.ModuleList()
             for i in range(4):
                 self.attentions.append(QuantCSAM(self.fuseplanes[i], act_bit_width=act_bit_width, weight_bit_width=weight_bit_width))
-                self.conv_reduces.append(QuantMapReduce(self.fuseplanes[i], weight_bit_width=weight_bit_width))
+                self.conv_reduces.append(QuantMapReduce(self.fuseplanes[i], weight_bit_width=weight_bit_width, act_bit_width=act_bit_width))
         elif self.dil is not None:
             self.dilations = nn.ModuleList()
             for i in range(4):
                 self.dilations.append(QuantCDCM(self.fuseplanes[i], self.dil, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width))
-                self.conv_reduces.append(QuantMapReduce(self.dil, weight_bit_width=weight_bit_width))
+                self.conv_reduces.append(QuantMapReduce(self.dil, weight_bit_width=weight_bit_width, act_bit_width=act_bit_width))
         else:
             for i in range(4):
-                self.conv_reduces.append(QuantMapReduce(self.fuseplanes[i], weight_bit_width=weight_bit_width))
+                self.conv_reduces.append(QuantMapReduce(self.fuseplanes[i], weight_bit_width=weight_bit_width, act_bit_width=act_bit_width))
 
         # Add QuantIdentity layer to handle concatenation before classifier
         self.quant_cat = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
