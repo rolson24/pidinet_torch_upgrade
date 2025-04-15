@@ -76,13 +76,16 @@ def main():
     # Ensure model is on CPU for export
     model.cpu()
 
-    # Brevitas ONNX export requires specific setup
-    from brevitas.onnx import export_finn_onnx
-    export_finn_onnx(
+    # Use export_onnx_qcdq instead of export_finn_onnx
+    from brevitas.onnx import export_onnx_qcdq # Import the correct function
+
+    print(f"Exporting model to ONNX (QCDQ format) at: {args.onnx_out}")
+    export_onnx_qcdq(
         model,
-        input_shape=(1, *args.input_shape), # Pass input shape tuple
+        args=dummy_input, # Pass dummy_input as the 'args' argument
         export_path=args.onnx_out,
-        # opset_version=11 # FINN export usually defaults or uses a specific version
+        opset_version=13 # Use opset 13 as in the example, or adjust if needed
+        # Add other relevant arguments for export_onnx_qcdq if necessary
     )
 
     # Original torch.onnx.export (keep commented as fallback/alternative)
