@@ -21,7 +21,7 @@ class QuantCSAM(nn.Module):
         super(QuantCSAM, self).__init__()
         mid_channels = 4
         self.relu1 = nn.ReLU()
-        # Remove QuantIdentity after ReLU
+        # Keep QuantIdentity after ReLU since conv1 uses BiasQuant
         self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv1 = qnn.QuantConv2d(channels, mid_channels, kernel_size=1, padding=0,
                                      weight_bit_width=weight_bit_width,
@@ -38,13 +38,12 @@ class QuantCSAM(nn.Module):
     def forward(self, x): # Input x: QuantTensor
         # Apply standard ReLU -> float Tensor
         y_float = self.relu1(x)
-        # Pass float Tensor directly to conv1
-        # conv1 now expects float input but applies quantized bias
+        # Requantize before conv1 because BiasQuant needs scale
         y = self.quant_relu_out(y_float) # y: QuantTensor
         y = self.conv1(y) # y: QuantTensor
         y = self.conv2(y) # y: QuantTensor
-        # Apply standard Sigmoid to the float value of y
-        y_sigmoid_float = self.sigmoid(y) # Use .value with nn.Sigmoid
+        # Apply standard Sigmoid directly to QuantTensor y
+        y_sigmoid_float = self.sigmoid(y) # CORRECTED: Removed .value
         # Multiply original QuantTensor x by float sigmoid output
         return x * y_sigmoid_float
 
@@ -54,6 +53,7 @@ class QuantCDCM(nn.Module):
         super(QuantCDCM, self).__init__()
         # Replace QuantReLU with nn.ReLU
         self.relu1 = nn.ReLU()
+        # Keep QuantIdentity after ReLU since conv1 uses BiasQuant
         self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv1 = qnn.QuantConv2d(in_channels, out_channels, kernel_size=1, padding=0,
                                      weight_bit_width=weight_bit_width,
@@ -76,9 +76,9 @@ class QuantCDCM(nn.Module):
     def forward(self, x): # Input x: QuantTensor
         # Apply standard ReLU -> float Tensor
         x_float = self.relu1(x)
+        # Requantize before conv1 because BiasQuant needs scale
         x = self.quant_relu_out(x_float) # x: QuantTensor
-        # Pass float Tensor directly to conv1
-        # conv1 now expects float input but applies quantized bias
+        # Pass QuantTensor to conv1
         x = self.conv1(x) # x: QuantTensor
         # Pass QuantTensor to dilated convs
         x1 = self.conv2_1(x)
@@ -90,9 +90,10 @@ class QuantCDCM(nn.Module):
 
 class QuantMapReduce(nn.Module):
     """ Quantized Reduce feature maps into a single edge map """
-    def __init__(self, channels, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH, act_bit_width=DEFAULT_ACT_BIT_WIDTH):
+    def __init__(self, channels, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH, act_bit_width=DEFAULT_ACT_BIT_WIDTH): # act_bit_width might not be needed now
         super(QuantMapReduce, self).__init__()
-        self.requant_add = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
+        # Remove input requantization layer
+        # self.requant_add = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv = qnn.QuantConv2d(channels, 1, kernel_size=1, padding=0,
                                     weight_bit_width=weight_bit_width,
                                     bias=True, # Ensure bias exists
@@ -103,9 +104,9 @@ class QuantMapReduce(nn.Module):
             nn.init.constant_(self.conv.bias, 0)
 
     def forward(self, x): # Input x: QuantTensor or float Tensor
-        # conv handles QuantTensor or float Tensor input
+        # REMOVED: x = self.requant_add(x) # Requantize input
+        # conv handles QuantTensor or float Tensor input via its own input quantizer
         # Output will be QuantTensor
-        x = self.requant_add(x) # Requantize input
         return self.conv(x)
 
 
@@ -151,26 +152,27 @@ class QuantPDCBlock(nn.Module):
         identity = x # Store original input QuantTensor
 
         if self.stride > 1:
-            # Pool the float value
+            # Pool the QuantTensor directly (MaxPool2d should handle it)
             x_pooled = self.pool(x)
-            # Pass the float pooled output directly to conv1
+            # Pass the pooled QuantTensor directly to conv1
             input_to_conv1 = x_pooled
-            # Apply shortcut (must exist) to the pooled float
+            # Apply shortcut (must exist) to the pooled QuantTensor
             identity_processed = self.shortcut(x_pooled)
         else: # Stride = 1
-            # Pass float value to conv1
+            # Pass QuantTensor directly to conv1
             input_to_conv1 = x
             # Apply shortcut only if it exists (channels changed)
             if self.shortcut is not None: # Check if shortcut layer exists
-                 identity_processed = self.shortcut(identity.value)
+                 # Pass QuantTensor identity directly to shortcut
+                 identity_processed = self.shortcut(identity) # CORRECTED: Removed .value
             else: # No shortcut layer (stride=1, inplane==ouplane), use original QuantTensor
                  identity_processed = identity
 
-        # conv1 receives float Tensor in both stride=1 and stride=2 cases
+        # conv1 receives QuantTensor in both stride=1 and stride=2 cases
         y = self.conv1(input_to_conv1)
-        # Apply standard ReLU
+        # Apply standard ReLU (outputs float)
         y_relu = self.relu2(y)
-        # Pass ReLU output (potentially float Tensor) directly to conv2
+        # Pass ReLU output (float Tensor) directly to conv2
         y = self.conv2(y_relu)
 
         # Add residual connection directly
