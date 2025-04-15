@@ -105,6 +105,7 @@ class QuantMapReduce(nn.Module):
     def forward(self, x): # Input x: QuantTensor or float Tensor
         # conv handles QuantTensor or float Tensor input
         # Output will be QuantTensor
+        x = self.requant_add(x) # Requantize input
         return self.conv(x)
 
 
