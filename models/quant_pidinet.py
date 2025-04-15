@@ -258,11 +258,14 @@ class QuantPiDiNet(nn.Module):
         # Final Classifier
         self.classifier = qnn.QuantConv2d(4, 1, kernel_size=1,
                                           weight_bit_width=weight_bit_width,
-                                          bias_quant=BiasQuant,
-                                          cache_inference_quant_bias=True) # Bias default True
-        # Initialize classifier weights and bias if needed, similar to original
-        # nn.init.constant_(self.classifier.weight, 0.25) # May need adjustment for QuantTensor
-        # nn.init.constant_(self.classifier.bias, 0)
+                                          bias=True, # Ensure bias exists
+                                          bias_quant=None, # Disable bias quantization
+                                          cache_inference_quant_bias=False)
+        # Initialize classifier weights and bias, matching original PiDiNet
+        if self.classifier.weight is not None:
+            nn.init.constant_(self.classifier.weight, 0.25)
+        if self.classifier.bias is not None:
+            nn.init.constant_(self.classifier.bias, 0)
 
         # Final Sigmoid Activation Quantization
         self.final_sigmoid = qnn.QuantSigmoid(bit_width=act_bit_width, return_quant_tensor=False) # Return float for loss calculation
@@ -329,18 +332,16 @@ class QuantPiDiNet(nn.Module):
         cat_out = torch.cat([e1, e2, e3, e4], dim=1)
         # Requantize the concatenated tensor before feeding to the classifier
         quant_cat_out = self.quant_cat(cat_out)
-        output = self.classifier(quant_cat_out)
+        # Classifier now handles QuantTensor input, uses float bias
+        output = self.classifier(quant_cat_out) # Output is QuantTensor
 
         # Apply final sigmoid quantization
-        # The intermediate outputs e1..e4 might also need sigmoid for training loss
         # Note: e1..e4 are standard tensors here after interpolation
         outputs = [self.final_sigmoid(e) for e in [e1, e2, e3, e4]]
-        outputs.append(self.final_sigmoid(output)) # output is already processed by final_sigmoid
+        # Apply final_sigmoid to the classifier output (which is QuantTensor)
+        outputs.append(self.final_sigmoid(output))
 
-        # Return float tensors for compatibility with existing loss functions
-        # Brevitas QuantTensor can be used directly if loss supports it,
-        # otherwise .value extracts the dequantized float tensor.
-        # Setting return_quant_tensor=False in final sigmoid handles this.
+        # Return float tensors
         return outputs
 
 
