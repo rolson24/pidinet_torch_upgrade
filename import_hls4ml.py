@@ -11,11 +11,11 @@ from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.infer_datatypes import InferDataTypes
 # Import the combined transformation again
 from qonnx.transformation.channels_last import ConvertToChannelsLastAndClean
-# Import potentially helpful streamlining transformations
-from qonnx.transformation.streamline import Streamline
-from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from qonnx.transformation.general import ConvertSubToAdd, ConvertDivToMul
-from qonnx.transformation.batchnorm_to_affine import AbsorbBNIntoConv, AbsorbScalarMulAddIntoConv
+# Remove problematic/speculative imports
+# from qonnx.transformation.streamline import Streamline
+# from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+# from qonnx.transformation.general import ConvertSubToAdd, ConvertDivToMul
+# from qonnx.transformation.batchnorm_to_affine import AbsorbBNIntoConv, AbsorbScalarMulAddIntoConv
 
 
 def main():
@@ -39,7 +39,7 @@ def main():
     total_transform_start_time = time.time()
 
     # --- Initial Cleanup & Simplification ---
-    print("Step 1: Initial Cleanup, Simplification & Shape Inference...")
+    print("Step 1: Initial Cleanup & Shape Inference...")
     step_start_time = time.time()
     # Basic cleanup
     model = model.transform(InferShapes())
@@ -47,17 +47,15 @@ def main():
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(RemoveStaticGraphInputs())
-    # Try additional streamlining/conversion before channels last
-    # Note: Some of these might not apply or might change behavior slightly,
-    # monitor results carefully. Comment out if they cause issues.
-    # model = model.transform(Streamline()) # Applies several cleanups
-    # model = model.transform(LowerConvsToMatMul()) # May help if Conv is the issue, but changes structure
+    # Remove calls to non-existent/speculative transformations
+    # model = model.transform(Streamline())
+    # model = model.transform(LowerConvsToMatMul())
     # model = model.transform(ConvertSubToAdd())
     # model = model.transform(ConvertDivToMul())
-    # model = model.transform(AbsorbScalarMulAddIntoConv()) # If applicable
-    # model = model.transform(AbsorbBNIntoConv()) # If applicable
+    # model = model.transform(AbsorbScalarMulAddIntoConv())
+    # model = model.transform(AbsorbBNIntoConv())
 
-    # Re-run basic cleanup after potential changes
+    # Re-run basic cleanup after potential changes (still useful)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     print(f"  Step 1 took: {time.time() - step_start_time:.2f} seconds")
