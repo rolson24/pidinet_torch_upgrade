@@ -26,8 +26,8 @@ class QuantCSAM(nn.Module):
         self.conv1 = qnn.QuantConv2d(channels, mid_channels, kernel_size=1, padding=0,
                                      weight_bit_width=weight_bit_width,
                                      bias=True, # Ensure bias parameter exists
-                                     bias_quant=None, # Keep bias quantization disabled for this test
-                                     cache_inference_quant_bias=False)
+                                     bias_quant=BiasQuant, # Re-enable bias quantization
+                                     cache_inference_quant_bias=True) # Re-enable cache
         if self.conv1.bias is not None:
              nn.init.constant_(self.conv1.bias, 0)
 
@@ -39,10 +39,11 @@ class QuantCSAM(nn.Module):
         # Apply standard ReLU -> float Tensor
         y_float = self.relu1(x)
         # Pass float Tensor directly to conv1
-        y = self.conv1(y_float) # y: QuantTensor (conv1 handles float input)
+        # conv1 now expects float input but applies quantized bias
+        y = self.conv1(y_float) # y: QuantTensor
         y = self.conv2(y) # y: QuantTensor
         # Apply standard Sigmoid to the float value of y
-        y_sigmoid_float = self.sigmoid(y)
+        y_sigmoid_float = self.sigmoid(y) # Use .value with nn.Sigmoid
         # Multiply original QuantTensor x by float sigmoid output
         return x * y_sigmoid_float
 
@@ -55,8 +56,8 @@ class QuantCDCM(nn.Module):
         self.conv1 = qnn.QuantConv2d(in_channels, out_channels, kernel_size=1, padding=0,
                                      weight_bit_width=weight_bit_width,
                                      bias=True, # Ensure bias exists
-                                     bias_quant=None, # Disable bias quantization
-                                     cache_inference_quant_bias=False)
+                                     bias_quant=BiasQuant, # Re-enable bias quantization
+                                     cache_inference_quant_bias=True) # Re-enable cache
         # Initialize conv1 bias to 0
         if self.conv1.bias is not None:
             nn.init.constant_(self.conv1.bias, 0)
@@ -74,6 +75,7 @@ class QuantCDCM(nn.Module):
         # Apply standard ReLU -> float Tensor
         x_float = self.relu1(x)
         # Pass float Tensor directly to conv1
+        # conv1 now expects float input but applies quantized bias
         x = self.conv1(x_float) # x: QuantTensor
         # Pass QuantTensor to dilated convs
         x1 = self.conv2_1(x)
@@ -90,8 +92,8 @@ class QuantMapReduce(nn.Module):
         self.conv = qnn.QuantConv2d(channels, 1, kernel_size=1, padding=0,
                                     weight_bit_width=weight_bit_width,
                                     bias=True, # Ensure bias exists
-                                    bias_quant=None, # Disable bias quantization
-                                    cache_inference_quant_bias=False)
+                                    bias_quant=BiasQuant, # Re-enable bias quantization
+                                    cache_inference_quant_bias=True) # Re-enable cache
         # Initialize bias to 0, matching original MapReduce
         if self.conv.bias is not None:
             nn.init.constant_(self.conv.bias, 0)
@@ -259,8 +261,8 @@ class QuantPiDiNet(nn.Module):
         self.classifier = qnn.QuantConv2d(4, 1, kernel_size=1,
                                           weight_bit_width=weight_bit_width,
                                           bias=True, # Ensure bias exists
-                                          bias_quant=None, # Disable bias quantization
-                                          cache_inference_quant_bias=False)
+                                          bias_quant=BiasQuant, # Re-enable bias quantization
+                                          cache_inference_quant_bias=True) # Re-enable cache
         # Initialize classifier weights and bias, matching original PiDiNet
         if self.classifier.weight is not None:
             nn.init.constant_(self.classifier.weight, 0.25)
