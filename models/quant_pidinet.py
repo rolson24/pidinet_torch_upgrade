@@ -20,7 +20,7 @@ class QuantCSAM(nn.Module):
     def __init__(self, channels, act_bit_width=DEFAULT_ACT_BIT_WIDTH, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH):
         super(QuantCSAM, self).__init__()
         mid_channels = 4
-        self.relu1 = nn.ReLU()
+        self.relu1 = qnn.QuantReLU()
         # Remove QuantIdentity after ReLU
         # self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
         self.conv1 = qnn.QuantConv2d(channels, mid_channels, kernel_size=1, padding=0,
@@ -52,7 +52,7 @@ class QuantCDCM(nn.Module):
     def __init__(self, in_channels, out_channels, act_bit_width=DEFAULT_ACT_BIT_WIDTH, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH):
         super(QuantCDCM, self).__init__()
         # Replace QuantReLU with nn.ReLU
-        self.relu1 = nn.ReLU()
+        self.relu1 = qnn.QuantReLU()
         self.conv1 = qnn.QuantConv2d(in_channels, out_channels, kernel_size=1, padding=0,
                                      weight_bit_width=weight_bit_width,
                                      bias=True, # Ensure bias exists
