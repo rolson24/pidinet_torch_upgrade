@@ -359,16 +359,16 @@ class QuantPiDiNet(nn.Module):
 
         # Reduce (Outputs QuantTensor) and Upsample (Outputs float)
         e1 = self.conv_reduces[0](x_fuses[0])
-        e1_interp = F.interpolate(e1.value, (H, W), mode="bilinear", align_corners=False) # Interpolate float value
+        e1_interp = F.interpolate(e1, (H, W), mode="bilinear", align_corners=False) # Interpolate float value
 
         e2 = self.conv_reduces[1](x_fuses[1])
-        e2_interp = F.interpolate(e2.value, (H, W), mode="bilinear", align_corners=False)
+        e2_interp = F.interpolate(e2, (H, W), mode="bilinear", align_corners=False)
 
         e3 = self.conv_reduces[2](x_fuses[2])
-        e3_interp = F.interpolate(e3.value, (H, W), mode="bilinear", align_corners=False)
+        e3_interp = F.interpolate(e3, (H, W), mode="bilinear", align_corners=False)
 
         e4 = self.conv_reduces[3](x_fuses[3])
-        e4_interp = F.interpolate(e4.value, (H, W), mode="bilinear", align_corners=False)
+        e4_interp = F.interpolate(e4, (H, W), mode="bilinear", align_corners=False)
 
         # Concatenate the interpolated float tensors
         cat_out = torch.cat([e1_interp, e2_interp, e3_interp, e4_interp], dim=1)
