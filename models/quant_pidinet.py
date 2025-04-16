@@ -297,15 +297,13 @@ class QuantPiDiNet(nn.Module):
         # Add QuantIdentity layer to handle concatenation before classifier
         self.quant_cat = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
 
-        # Final Classifier
+        # Final Classifier - Remove the problematic input_quant parameter
         self.classifier = qnn.QuantConv2d(4, 1, kernel_size=1,
                                           weight_bit_width=weight_bit_width,
                                           bias=True, # Ensure bias exists
-                                          # Pass the type, not an instance
                                           bias_quant=BiasQuant,
-                                          # Add input quantizer to handle potential float input from concat fallback
-                                          input_quant=qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True),
-                                          cache_inference_quant_bias=True) # Re-enable cache
+                                          # Remove the input_quant that's causing problems
+                                          cache_inference_quant_bias=True) 
         # Initialize classifier weights and bias, matching original PiDiNet
         if self.classifier.weight is not None:
             nn.init.constant_(self.classifier.weight, 0.25)
@@ -372,12 +370,14 @@ class QuantPiDiNet(nn.Module):
         e4 = self.conv_reduces[3](x_fuses[3])
         e4_interp = F.interpolate(e4.value, (H, W), mode="bilinear", align_corners=False)
 
-        # Classifier and Final Output
         # Concatenate the interpolated float tensors
         cat_out = torch.cat([e1_interp, e2_interp, e3_interp, e4_interp], dim=1)
-        # Requantize the concatenated tensor before feeding to the classifier
-        # This is handled by self.classifier.input_quant
-        output = self.classifier(cat_out) # Classifier handles input quantization, output is QuantTensor
+        
+        # Explicitly requantize before feeding to classifier (since we removed input_quant from classifier)
+        cat_out_quant = self.quant_cat(cat_out)
+        
+        # Feed quantized concatenated tensor to classifier
+        output = self.classifier(cat_out_quant)
 
         # Apply final sigmoid quantization to classifier output
         final_output = self.final_sigmoid(output) # Returns float
