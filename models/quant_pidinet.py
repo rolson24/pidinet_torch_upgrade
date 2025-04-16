@@ -301,8 +301,8 @@ class QuantPiDiNet(nn.Module):
         self.classifier = qnn.QuantConv2d(4, 1, kernel_size=1,
                                           weight_bit_width=weight_bit_width,
                                           bias=True, # Ensure bias exists
-                                          # Instantiate the bias quantizer
-                                          bias_quant=BiasQuant(),
+                                          # Pass the type, not an instance
+                                          bias_quant=BiasQuant,
                                           # Add input quantizer to handle potential float input from concat fallback
                                           input_quant=qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True),
                                           cache_inference_quant_bias=True) # Re-enable cache
