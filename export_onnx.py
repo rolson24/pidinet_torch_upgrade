@@ -78,14 +78,27 @@ def main():
 
     # Use export_onnx_qcdq instead of export_finn_onnx
     from brevitas.onnx import export_onnx_qcdq # Import the correct function
+    from brevitas.export import export_qonnx # Import export_qonnx if needed
 
-    print(f"Exporting model to ONNX (QCDQ format) at: {args.onnx_out}")
-    export_onnx_qcdq(
+    # print(f"Exporting model to ONNX (QCDQ format) at: {args.onnx_out}")
+    # export_onnx_qcdq(
+    #     model,
+    #     args=dummy_input, # Pass dummy_input as the 'args' argument
+    #     export_path=args.onnx_out,
+    #     opset_version=13 # Use opset 13 as in the example, or adjust if needed
+    #     # Add other relevant arguments for export_onnx_qcdq if necessary
+    # )
+
+    print(f"Exporting model to ONNX (QONNX format) at: {args.onnx_out}")
+
+    export_qonnx(
         model,
-        args=dummy_input, # Pass dummy_input as the 'args' argument
+        dummy_input,
         export_path=args.onnx_out,
-        opset_version=13 # Use opset 13 as in the example, or adjust if needed
-        # Add other relevant arguments for export_onnx_qcdq if necessary
+        opset_version=13,
+        input_names=['input'],
+        output_names=['output'], # Adjust if the model returns a list
+        dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}} # Adjust for dynamic axes if needed
     )
 
     # Original torch.onnx.export (keep commented as fallback/alternative)
