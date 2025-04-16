@@ -175,10 +175,9 @@ class QuantPDCBlock(nn.Module):
         self.conv2 = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
                                      weight_bit_width=weight_bit_width)
 
-        # Quantized addition for the residual connection
-        self.residual_add = qnn.QuantAdd(
-            bit_width=act_bit_width, # Output bitwidth usually matches input activation bitwidth
-            return_quant_tensor=True)
+        # Add QuantIdentity for requantizing after standard addition
+        self.requant_add_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
+
 
     def forward(self, x):
         # Ensure input is QuantTensor
@@ -200,8 +199,13 @@ class QuantPDCBlock(nn.Module):
         y = self.relu2(y)       # Input/Output are QuantTensor
         y = self.conv2(y)       # Input/Output are QuantTensor
 
-        # Use QuantAdd for residual connection
-        out = self.residual_add(y, identity) # Both inputs must be QuantTensor
+        # Use standard addition (+)
+        # Both y and identity should be QuantTensors here
+        # Standard addition might output float or QuantTensor depending on Brevitas version/settings
+        sum_out = y + identity
+
+        # Explicitly requantize the output of the addition
+        out = self.requant_add_out(sum_out)
 
         return out # Output is QuantTensor
 
