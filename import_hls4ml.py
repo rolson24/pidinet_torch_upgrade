@@ -46,7 +46,7 @@ def main():
 
     # --- Initial Cleanup & Simplification ---
     print("Cleaning up model...")
-    model = cleanup_model(model, remove_unused=True, remove_redundant=True, remove_dead=True)
+    model = cleanup_model(model)
     print("Cleanup complete.")
     print(f"Model cleanup took: {time.time() - total_transform_start_time:.2f} seconds")
     total_transform_start_time = time.time()
