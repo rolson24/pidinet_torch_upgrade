@@ -392,25 +392,24 @@ class QuantPiDiNet(nn.Module):
 def quant_pidinet_micro(args, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH, act_bit_width=DEFAULT_ACT_BIT_WIDTH):
     pdcs_types = config_model_converted(args.config) # Get pdc types ('cv', 'cd', 'ad', 'rd')
     dil = 4 if args.dil else None
-    # Pass args directly to QuantPiDiNet constructor if needed, or just necessary attributes
-    model_args = argparse.Namespace(sa=args.sa, dil=args.dil) # Create a simple namespace if needed
+    # Pass attributes directly from the received args object
     return QuantPiDiNet(12, pdcs_types, dil=dil, sa=args.sa, weight_bit_width=weight_bit_width, act_bit_width=act_bit_width)
 
 def quant_pidinet_tiny(args, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH, act_bit_width=DEFAULT_ACT_BIT_WIDTH):
     pdcs_types = config_model_converted(args.config)
     dil = 8 if args.dil else None
-    model_args = argparse.Namespace(sa=args.sa, dil=args.dil)
+    # Pass attributes directly
     return QuantPiDiNet(20, pdcs_types, dil=dil, sa=args.sa, weight_bit_width=weight_bit_width, act_bit_width=act_bit_width)
 
 def quant_pidinet_small(args, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH, act_bit_width=DEFAULT_ACT_BIT_WIDTH):
     pdcs_types = config_model_converted(args.config)
     dil = 12 if args.dil else None
-    model_args = argparse.Namespace(sa=args.sa, dil=args.dil)
+    # Pass attributes directly
     return QuantPiDiNet(30, pdcs_types, dil=dil, sa=args.sa, weight_bit_width=weight_bit_width, act_bit_width=act_bit_width)
 
 def quant_pidinet(args, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH, act_bit_width=DEFAULT_ACT_BIT_WIDTH):
     pdcs_types = config_model_converted(args.config)
     dil = 24 if args.dil else None
-    model_args = argparse.Namespace(sa=args.sa, dil=args.dil)
+    # Pass attributes directly
     return QuantPiDiNet(60, pdcs_types, dil=dil, sa=args.sa, weight_bit_width=weight_bit_width, act_bit_width=act_bit_width)
 
