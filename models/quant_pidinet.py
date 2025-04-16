@@ -180,8 +180,14 @@ class QuantPDCBlock(nn.Module):
 
 
     def forward(self, x):
-        # Ensure input is QuantTensor
-        x_quant = self.quant_input(x)
+        # Check if input is already a QuantTensor to avoid redundant quantization
+        if hasattr(x, 'scale') and hasattr(x, 'bit_width'):
+            # Input is already a QuantTensor
+            x_quant = x
+        else:
+            # Input needs quantization
+            x_quant = self.quant_input(x)
+            
         identity = x_quant # Store quantized identity
 
         input_to_conv1 = x_quant # Default input for conv1 (stride=1 case)
