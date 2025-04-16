@@ -65,6 +65,17 @@ def main():
     # hls4ml.utils.print_dict(hls_config)
     # ----------------------------------------------------
 
+    print("\nGenerating hls4ml configuration...")
+    start_time = time.time()
+    hls_config = hls4ml.utils.config_from_onnx_model(
+        model,
+        granularity='name', # Required for QONNX/quantized models
+        backend=args.backend,
+        default_precision=args.default_precision
+    )
+    print(f"Config generation took: {time.time() - start_time:.2f} seconds")
+    print("hls4ml configuration generated.")
+
     print(f"\nConverting model to hls4ml project: {args.project_name} in {args.output_dir}")
     start_time = time.time()
     hls_model = hls4ml.converters.convert_from_onnx_model(
