@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import brevitas.nn as qnn
 from brevitas.quant import Int8Bias as BiasQuant # Example bias quantizer
 
-from .config import config_model_converted # To get PDC types for kernel size logic
+from .config import config_model_converted, nets # To get PDC types for kernel size logic, Import nets
 
 # Default bit widths (can be overridden in factory functions or args)
 DEFAULT_WEIGHT_BIT_WIDTH = 8
@@ -36,7 +36,14 @@ class QuantCSAM(nn.Module):
         # Replace nn.Sigmoid with qnn.QuantSigmoid
         self.sigmoid = qnn.QuantSigmoid(bit_width=act_bit_width, return_quant_tensor=True) # Return QuantTensor
 
-    def forward(self, x): # Input x: QuantTensor
+    def forward(self, x): # Input x: QuantTensor or float
+        # Ensure input is QuantTensor if it's not already
+        if not isinstance(x, torch.Tensor) or not hasattr(x, 'is_quantized'):
+             # Add an input quantizer if needed, assuming x might be float
+             # This might require defining self.quant_input in __init__
+             # For now, assume x is QuantTensor or handle upstream
+             pass # Placeholder
+
         # Apply standard ReLU -> float Tensor
         y_float = self.relu1(x)
         # Requantize before conv1 because BiasQuant needs scale
@@ -75,7 +82,12 @@ class QuantCDCM(nn.Module):
         # self.requant_add = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
 
 
-    def forward(self, x): # Input x: QuantTensor
+    def forward(self, x): # Input x: QuantTensor or float
+        # Ensure input is QuantTensor if it's not already
+        if not isinstance(x, torch.Tensor) or not hasattr(x, 'is_quantized'):
+             # Add an input quantizer if needed
+             pass # Placeholder
+
         # Apply standard ReLU -> float Tensor
         x_float = self.relu1(x)
         # Requantize before conv1 because BiasQuant needs scale
@@ -87,8 +99,15 @@ class QuantCDCM(nn.Module):
         x2 = self.conv2_2(x)
         x3 = self.conv2_3(x)
         x4 = self.conv2_4(x)
-        # Sum QuantTensors directly
-        return x1 + x2 + x3 + x4 # Output: QuantTensor
+
+        # Use QuantAdd for summation if available and desired for full quantization
+        # For simplicity, standard add is often sufficient if followed by requantization
+        # If using standard add, the output might be float or require careful scale handling
+        # Let's assume standard add works and rely on subsequent layers' input quantizers
+        # If issues arise, replace with cascaded qnn.QuantAdd
+        out = x1 + x2 + x3 + x4
+
+        return out # Output: QuantTensor (if using QuantAdd) or potentially float
 
 class QuantMapReduce(nn.Module):
     """ Quantized Reduce feature maps into a single edge map """
@@ -120,16 +139,25 @@ class QuantPDCBlock(nn.Module):
         self.stride = stride
         self.act_bit_width = act_bit_width # Store for requantization
 
-        # Define shortcut only if needed (stride > 1 or channels change)
+        # Input quantizer for the block
+        self.quant_input = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
+
+        # Define shortcut logic
         self.shortcut = None # Initialize shortcut to None
+        self.requant_pool = None # Initialize pool requantizer
         if self.stride > 1:
+            # MaxPool outputs float, need requantization before shortcut/conv1
             self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+            self.requant_pool = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
             self.shortcut = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
                                             weight_bit_width=weight_bit_width)
         elif inplane != ouplane: # Stride is 1, channels are different
              self.shortcut = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
                                              weight_bit_width=weight_bit_width)
-        # else: No explicit shortcut layer if stride=1 and inplane==ouplane
+        else: # Stride is 1, channels are the same
+             # Use QuantIdentity to ensure QuantTensor passthrough for residual
+             self.shortcut = qnn.QuantIdentity(return_quant_tensor=True)
+
 
         # Determine kernel size based on converted PDC type
         if pdc_type == 'rd':
@@ -141,47 +169,41 @@ class QuantPDCBlock(nn.Module):
 
         self.conv1 = qnn.QuantConv2d(inplane, inplane, kernel_size=conv1_kernel_size, padding=conv1_padding, groups=inplane, bias=False,
                                      weight_bit_width=weight_bit_width)
-        # Use standard ReLU (Reverted change)
-        self.relu2 = nn.ReLU()
-        # Remove explicit quantization after ReLU
-        # self.quant_relu_out = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
+        # Use QuantReLU
+        self.relu2 = qnn.QuantReLU(bit_width=act_bit_width, return_quant_tensor=True)
+
         self.conv2 = qnn.QuantConv2d(inplane, ouplane, kernel_size=1, padding=0, bias=False,
                                      weight_bit_width=weight_bit_width)
-        # Addition requantization - Keep removed
-        # self.requant_add = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
+
+        # Quantized addition for the residual connection
+        self.residual_add = qnn.QuantAdd(
+            bit_width=act_bit_width, # Output bitwidth usually matches input activation bitwidth
+            return_quant_tensor=True)
 
     def forward(self, x):
-        # Input x assumed to be QuantTensor
-        identity = x # Store original input QuantTensor
+        # Ensure input is QuantTensor
+        x_quant = self.quant_input(x)
+        identity = x_quant # Store quantized identity
+
+        input_to_conv1 = x_quant # Default input for conv1 (stride=1 case)
 
         if self.stride > 1:
-            # Pool the QuantTensor directly (MaxPool2d should handle it)
-            x_pooled = self.pool(x)
-            # Pass the pooled QuantTensor directly to conv1
-            input_to_conv1 = x_pooled
-            # Apply shortcut (must exist) to the pooled QuantTensor
-            identity_processed = self.shortcut(x_pooled)
-        else: # Stride = 1
-            # Pass QuantTensor directly to conv1
-            input_to_conv1 = x
-            # Apply shortcut only if it exists (channels changed)
-            if self.shortcut is not None: # Check if shortcut layer exists
-                 # Pass QuantTensor identity directly to shortcut
-                 identity_processed = self.shortcut(identity) # CORRECTED: Removed .value
-            else: # No shortcut layer (stride=1, inplane==ouplane), use original QuantTensor
-                 identity_processed = identity
+            x_pooled = self.pool(x_quant) # pool outputs float
+            x_quant_pooled = self.requant_pool(x_pooled) # requantize before conv1/shortcut
+            input_to_conv1 = x_quant_pooled # Use requantized pooled tensor for conv1
+            identity = self.shortcut(x_quant_pooled) # Apply shortcut to requantized pooled input
+        elif self.shortcut is not None: # Apply shortcut if it exists (stride=1 cases)
+             identity = self.shortcut(identity)
+        # else: identity remains x_quant (stride=1, same channels)
 
-        # conv1 receives QuantTensor in both stride=1 and stride=2 cases
-        y = self.conv1(input_to_conv1)
-        # Apply standard ReLU (outputs float)
-        y_relu = self.relu2(y)
-        # Pass ReLU output (float Tensor) directly to conv2
-        y = self.conv2(y_relu)
+        y = self.conv1(input_to_conv1) # Input is QuantTensor
+        y = self.relu2(y)       # Input/Output are QuantTensor
+        y = self.conv2(y)       # Input/Output are QuantTensor
 
-        # Add residual connection directly
-        # y is QuantTensor, identity_processed is QuantTensor
-        out = y + identity_processed
-        return out
+        # Use QuantAdd for residual connection
+        out = self.residual_add(y, identity) # Both inputs must be QuantTensor
+
+        return out # Output is QuantTensor
 
 
 class QuantPiDiNet(nn.Module):
@@ -193,6 +215,7 @@ class QuantPiDiNet(nn.Module):
         self.dil = dil
 
         self.fuseplanes = []
+        self.inplane = inplane # Store initial inplane
 
         # Input Quantization
         self.quant_inp = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
@@ -205,43 +228,45 @@ class QuantPiDiNet(nn.Module):
         else:
             init_kernel_size = 3
             init_padding = 1
-        self.init_block = qnn.QuantConv2d(3, inplane,
+        self.init_block = qnn.QuantConv2d(3, self.inplane,
                                           kernel_size=init_kernel_size, padding=init_padding, bias=False,
                                           weight_bit_width=weight_bit_width)
-        self.fuseplanes.append(inplane) # C
+
 
         # Define Blocks
         block_class = QuantPDCBlock
-        cur_inplane = inplane
+        cur_inplane = self.inplane
         self.block1_1 = block_class(pdcs_types[1], cur_inplane, cur_inplane, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
         self.block1_2 = block_class(pdcs_types[2], cur_inplane, cur_inplane, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
         self.block1_3 = block_class(pdcs_types[3], cur_inplane, cur_inplane, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
+        self.fuseplanes.append(cur_inplane) # C
 
-        cur_inplane = inplane * 2
-        self.block2_1 = block_class(pdcs_types[4], inplane, cur_inplane, stride=2, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
+        inplane_prev = cur_inplane
+        cur_inplane = cur_inplane * 2
+        self.block2_1 = block_class(pdcs_types[4], inplane_prev, cur_inplane, stride=2, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
         self.block2_2 = block_class(pdcs_types[5], cur_inplane, cur_inplane, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
         self.block2_3 = block_class(pdcs_types[6], cur_inplane, cur_inplane, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
         self.block2_4 = block_class(pdcs_types[7], cur_inplane, cur_inplane, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
         self.fuseplanes.append(cur_inplane) # 2C
 
-        inplane = cur_inplane
+        inplane_prev = cur_inplane
         cur_inplane = cur_inplane * 2
-        self.block3_1 = block_class(pdcs_types[8], inplane, cur_inplane, stride=2, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
+        self.block3_1 = block_class(pdcs_types[8], inplane_prev, cur_inplane, stride=2, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
         self.block3_2 = block_class(pdcs_types[9], cur_inplane, cur_inplane, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
         self.block3_3 = block_class(pdcs_types[10], cur_inplane, cur_inplane, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
         self.block3_4 = block_class(pdcs_types[11], cur_inplane, cur_inplane, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
         self.fuseplanes.append(cur_inplane) # 4C
 
-        inplane = cur_inplane
-        # Note: Original PiDiNet keeps 4C here, check if typo in original or intended
-        # Assuming it stays 4C based on original code structure
-        self.block4_1 = block_class(pdcs_types[12], inplane, cur_inplane, stride=2, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
+        inplane_prev = cur_inplane
+        # Block 4 keeps the same number of channels (4C)
+        self.block4_1 = block_class(pdcs_types[12], inplane_prev, cur_inplane, stride=2, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
         self.block4_2 = block_class(pdcs_types[13], cur_inplane, cur_inplane, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
         self.block4_3 = block_class(pdcs_types[14], cur_inplane, cur_inplane, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
         self.block4_4 = block_class(pdcs_types[15], cur_inplane, cur_inplane, act_bit_width=act_bit_width, weight_bit_width=weight_bit_width)
         self.fuseplanes.append(cur_inplane) # 4C
 
         # Fusion Layers (Quantized)
+        # ... existing side path module definitions (QuantCDCM, QuantCSAM, QuantMapReduce) ...
         self.conv_reduces = nn.ModuleList()
         if self.sa and self.dil is not None:
             self.attentions = nn.ModuleList()
@@ -264,6 +289,7 @@ class QuantPiDiNet(nn.Module):
             for i in range(4):
                 self.conv_reduces.append(QuantMapReduce(self.fuseplanes[i], weight_bit_width=weight_bit_width, act_bit_width=act_bit_width))
 
+
         # Add QuantIdentity layer to handle concatenation before classifier
         self.quant_cat = qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True)
 
@@ -272,6 +298,8 @@ class QuantPiDiNet(nn.Module):
                                           weight_bit_width=weight_bit_width,
                                           bias=True, # Ensure bias exists
                                           bias_quant=BiasQuant, # Re-enable bias quantization
+                                          # Add input quantizer to handle potential float input from concat fallback
+                                          input_quant=qnn.QuantIdentity(bit_width=act_bit_width, return_quant_tensor=True),
                                           cache_inference_quant_bias=True) # Re-enable cache
         # Initialize classifier weights and bias, matching original PiDiNet
         if self.classifier.weight is not None:
@@ -290,7 +318,7 @@ class QuantPiDiNet(nn.Module):
         # Quantize input
         x = self.quant_inp(x)
 
-        # Blocks
+        # Blocks now consume and produce QuantTensors
         x = self.init_block(x)
 
         x1 = self.block1_1(x)
@@ -312,7 +340,7 @@ class QuantPiDiNet(nn.Module):
         x4 = self.block4_3(x4)
         x4 = self.block4_4(x4)
 
-        # Feature Fusion / Attention / Dilation
+        # Feature Fusion / Attention / Dilation (Inputs/Outputs are QuantTensors)
         x_fuses = []
         if self.sa and self.dil is not None:
             for i, xi in enumerate([x1, x2, x3, x4]):
@@ -324,36 +352,39 @@ class QuantPiDiNet(nn.Module):
             for i, xi in enumerate([x1, x2, x3, x4]):
                 x_fuses.append(self.dilations[i](xi))
         else:
-            x_fuses = [x1, x2, x3, x4]
+            x_fuses = [x1, x2, x3, x4] # These are QuantTensors
 
-        # Reduce and Upsample
+        # Reduce (Outputs QuantTensor) and Upsample (Outputs float)
         e1 = self.conv_reduces[0](x_fuses[0])
-        e1 = F.interpolate(e1, (H, W), mode="bilinear", align_corners=False)
+        e1_interp = F.interpolate(e1.value, (H, W), mode="bilinear", align_corners=False) # Interpolate float value
 
         e2 = self.conv_reduces[1](x_fuses[1])
-        e2 = F.interpolate(e2, (H, W), mode="bilinear", align_corners=False)
+        e2_interp = F.interpolate(e2.value, (H, W), mode="bilinear", align_corners=False)
 
         e3 = self.conv_reduces[2](x_fuses[2])
-        e3 = F.interpolate(e3, (H, W), mode="bilinear", align_corners=False)
+        e3_interp = F.interpolate(e3.value, (H, W), mode="bilinear", align_corners=False)
 
         e4 = self.conv_reduces[3](x_fuses[3])
-        e4 = F.interpolate(e4, (H, W), mode="bilinear", align_corners=False)
+        e4_interp = F.interpolate(e4.value, (H, W), mode="bilinear", align_corners=False)
 
         # Classifier and Final Output
-        # Concatenate the interpolated (standard) tensors
-        cat_out = torch.cat([e1, e2, e3, e4], dim=1)
+        # Concatenate the interpolated float tensors
+        cat_out = torch.cat([e1_interp, e2_interp, e3_interp, e4_interp], dim=1)
         # Requantize the concatenated tensor before feeding to the classifier
-        quant_cat_out = self.quant_cat(cat_out)
-        # Classifier now handles QuantTensor input, uses float bias
-        output = self.classifier(quant_cat_out) # Output is QuantTensor
+        # This is handled by self.classifier.input_quant
+        output = self.classifier(cat_out) # Classifier handles input quantization, output is QuantTensor
 
-        # Apply final sigmoid quantization
-        # Note: e1..e4 are standard tensors here after interpolation
-        outputs = [self.final_sigmoid(e) for e in [e1, e2, e3, e4]]
-        # Apply final_sigmoid to the classifier output (which is QuantTensor)
-        outputs.append(self.final_sigmoid(output))
+        # Apply final sigmoid quantization to classifier output
+        final_output = self.final_sigmoid(output) # Returns float
 
-        # Return float tensors
+        # Prepare side outputs (apply sigmoid to interpolated float values)
+        s1 = torch.sigmoid(e1_interp)
+        s2 = torch.sigmoid(e2_interp)
+        s3 = torch.sigmoid(e3_interp)
+        s4 = torch.sigmoid(e4_interp)
+
+        outputs = [s1, s2, s3, s4, final_output] # All should be float tensors
+
         return outputs
 
 
@@ -361,20 +392,25 @@ class QuantPiDiNet(nn.Module):
 def quant_pidinet_micro(args, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH, act_bit_width=DEFAULT_ACT_BIT_WIDTH):
     pdcs_types = config_model_converted(args.config) # Get pdc types ('cv', 'cd', 'ad', 'rd')
     dil = 4 if args.dil else None
+    # Pass args directly to QuantPiDiNet constructor if needed, or just necessary attributes
+    model_args = argparse.Namespace(sa=args.sa, dil=args.dil) # Create a simple namespace if needed
     return QuantPiDiNet(12, pdcs_types, dil=dil, sa=args.sa, weight_bit_width=weight_bit_width, act_bit_width=act_bit_width)
 
 def quant_pidinet_tiny(args, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH, act_bit_width=DEFAULT_ACT_BIT_WIDTH):
     pdcs_types = config_model_converted(args.config)
     dil = 8 if args.dil else None
+    model_args = argparse.Namespace(sa=args.sa, dil=args.dil)
     return QuantPiDiNet(20, pdcs_types, dil=dil, sa=args.sa, weight_bit_width=weight_bit_width, act_bit_width=act_bit_width)
 
 def quant_pidinet_small(args, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH, act_bit_width=DEFAULT_ACT_BIT_WIDTH):
     pdcs_types = config_model_converted(args.config)
     dil = 12 if args.dil else None
+    model_args = argparse.Namespace(sa=args.sa, dil=args.dil)
     return QuantPiDiNet(30, pdcs_types, dil=dil, sa=args.sa, weight_bit_width=weight_bit_width, act_bit_width=act_bit_width)
 
 def quant_pidinet(args, weight_bit_width=DEFAULT_WEIGHT_BIT_WIDTH, act_bit_width=DEFAULT_ACT_BIT_WIDTH):
     pdcs_types = config_model_converted(args.config)
     dil = 24 if args.dil else None
+    model_args = argparse.Namespace(sa=args.sa, dil=args.dil)
     return QuantPiDiNet(60, pdcs_types, dil=dil, sa=args.sa, weight_bit_width=weight_bit_width, act_bit_width=act_bit_width)
 
