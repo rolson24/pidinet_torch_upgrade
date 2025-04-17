@@ -5,6 +5,7 @@ import hls4ml
 import onnx
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.util.cleanup import cleanup_model
+from qonnx.transformation.gemm_to_matmul import GemmToMatMul
 from qonnx.transformation.channels_last import ConvertToChannelsLastAndClean
 import warnings
 
@@ -81,13 +82,28 @@ def main():
             print("Converting model to channels-last format...")
             model = model.transform(ConvertToChannelsLastAndClean())
             print("Channels-last conversion complete.")
+            # save the transformed model if needed
+            model.save(args.onnx_model.replace('.onnx', '_channels_last.onnx'))
         except Exception as e:
             print(f"Error during channels-last conversion: {e}")
             print("Will attempt to proceed with model as-is.")
     else:
         print("Skipping channels-last conversion as requested.")
 
+    print("Converting Gemm to MatMul...")
+    model = model.transform(GemmToMatMul())
+    print("Gemm to MatMul conversion complete.")
+    # Final cleanup
+    print("Final cleanup...")
+    model = cleanup_model(model)
+    print("Final cleanup complete.")
+
+    # Save the final model if needed
+    model.save(args.onnx_model.replace('.onnx', '_final.onnx'))
+    print("Final model saved.")
+
     print(f"Preprocessing took: {time.time() - transform_start_time:.2f} seconds")
+
 
     # Generate hls4ml configuration
     print("\nGenerating hls4ml configuration...")
@@ -108,8 +124,13 @@ def main():
     print(f"\nConverting model to hls4ml project: {args.project_name} in {args.output_dir}")
     start_time = time.time()
     try:
+        # Use ModelProto if available
+        print(f"Model type: {type(model)}")
+        print(f"Model data type: {type(model.model)}")
+        print(f"Model data: {model.model}")
+        model_proto = model.model if hasattr(model, "model") else model  # <-- FIXED: no trailing comma
         hls_model = hls4ml.converters.convert_from_onnx_model(
-            model,
+            model_proto,
             output_dir=args.output_dir,
             project_name=args.project_name,
             backend=args.backend,
