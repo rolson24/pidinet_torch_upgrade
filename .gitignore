@@ -114,3 +114,6 @@ results*
 *.mat
 *.tar
 *.bin
+import_hls4ml.log
+pidinet_micro_random.onnx
+pre_channels_last_pidinet_micro_random.onnx
