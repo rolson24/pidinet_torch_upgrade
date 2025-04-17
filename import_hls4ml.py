@@ -66,6 +66,8 @@ def main():
             print("Cleaning up model...")
             model = cleanup_model(model)
             print("Cleanup complete.")
+            # save the cleaned model if needed
+            model.save(args.onnx_model.replace('.onnx', '_cleaned.onnx'))
         except Exception as e:
             print(f"Error during cleanup: {e}")
             print("Consider using --skip-cleanup if this persists.")
