@@ -4,7 +4,7 @@ Export a quantized PiDiNet model directly to QCDQ ONNX format.
 import argparse
 import torch
 import os
-from brevitas.export import export_qcdq_onnx # Use QCDQ export function
+from brevitas.export import export_onnx_qcdq # Use QCDQ export function
 
 # Import model factory functions
 from models.quant_pidinet import quant_pidinet_micro, quant_pidinet_tiny, quant_pidinet_small, quant_pidinet
@@ -79,7 +79,7 @@ def main():
 
     # Export directly to QCDQ ONNX
     print(f"Exporting to QCDQ ONNX: {args.qcdq_out} with opset {args.opset_version}")
-    export_qcdq_onnx(
+    export_onnx_qcdq(
         module=model,
         input_t=dummy_input,
         export_path=args.qcdq_out,
