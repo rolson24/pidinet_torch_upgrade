@@ -116,3 +116,5 @@ results*
 *.bin
 import_hls4ml.log
 *.onnx
+hls4ml_simplified_pidinet_prj.zip
+.vscode/settings.json

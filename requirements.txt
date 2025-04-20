@@ -1,0 +1,5 @@
+qkeras
+keras_tuner
+hls4ml
+plotting
+tensorflow-datasets
