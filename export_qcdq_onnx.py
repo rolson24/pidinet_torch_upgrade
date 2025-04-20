@@ -74,6 +74,17 @@ def main():
     # Set model to evaluation mode
     model.eval()
 
+
+    # --- Count and Print Parameters ---
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"------------------------------------")
+    print(f"Total model parameters: {total_params:,}")
+    print(f"Trainable parameters:   {trainable_params:,}")
+    print(f"------------------------------------")
+    # --- End Parameter Counting ---
+
+    
     # Prepare dummy input (NCHW format)
     dummy_input = torch.randn(args.input_shape)
 

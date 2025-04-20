@@ -5,6 +5,7 @@ import hls4ml
 import onnx
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.util.cleanup import cleanup_model
+from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.gemm_to_matmul import GemmToMatMul
 from qonnx.transformation.channels_last import ConvertToChannelsLastAndClean
 import warnings
@@ -20,7 +21,7 @@ def main():
     parser.add_argument('--default-precision', type=str, default='fixed<16,6>', help='Default precision for hls4ml layers.')
     parser.add_argument('--io-type', type=str, default='io_stream', choices=['io_stream', 'io_parallel'], help='IO type for hls4ml model.')
     parser.add_argument('--skip-channels-last', action='store_true', help='Skip channels-last conversion (model already has channels-last format)')
-    parser.add_argument('--target-opset', type=int, default=9, help='Target ONNX opset version (default: 9 for compatibility)')
+    parser.add_argument('--target-opset', type=int, default=19, help='Target ONNX opset version (default: 9 for compatibility)')
     parser.add_argument('--skip-cleanup', action='store_true', help='Skip QONNX cleanup (use if cleanup fails)')
 
     args = parser.parse_args()
@@ -66,6 +67,7 @@ def main():
         try:
             print("Cleaning up model...")
             model = cleanup_model(model)
+            model = model.transform(InferShapes())
             print("Cleanup complete.")
             # save the cleaned model if needed
             model.save(args.onnx_model.replace('.onnx', '_cleaned.onnx'))

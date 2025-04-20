@@ -95,7 +95,7 @@ def main():
         model,
         dummy_input,
         export_path=args.onnx_out,
-        opset_version=9,
+        opset_version=19,
         input_names=['input'],
         output_names=['output'], # Adjust if the model returns a list
         dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}} # Adjust for dynamic axes if needed
