@@ -20,31 +20,43 @@ def fold_files(foldname):
 def custom_collate_fn(batch):
     images, labels = zip(*batch)
     
-    # Ensure that all images and labels are torch Tensors.
+    # Ensure that all images are torch Tensors.
     images = [img if isinstance(img, torch.Tensor) else torch.tensor(img) for img in images]
-    labels = [lab if isinstance(lab, torch.Tensor) else torch.from_numpy(lab) for lab in labels]
     
-    # Get the maximum height and width in this batch.
+    # Get the maximum height and width in this batch for images.
     max_h = max(img.size(1) for img in images)
     max_w = max(img.size(2) for img in images)
     
     padded_images = []
-    padded_labels = []
-    
-    for img, lab in zip(images, labels):
+    for img in images:
         # Pad the image: pad right and bottom to make them consistent in size.
         _, h, w = img.size()
         pad_img = F.pad(img, (0, max_w - w, 0, max_h - h), mode='constant', value=0)
         padded_images.append(pad_img)
-        
-        # Assuming the labels are shaped as (1, H, W).
-        _, h_lab, w_lab = lab.size()
-        pad_lab = F.pad(lab, (0, max_w - w_lab, 0, max_h - h_lab), mode='constant', value=0)
-        padded_labels.append(pad_lab)
     
     images_tensor = torch.stack(padded_images, dim=0)
-    labels_tensor = torch.stack(padded_labels, dim=0)
-    return images_tensor, labels_tensor
+
+    # Check if the first label is a tensor or numpy array (training case)
+    if isinstance(labels[0], (torch.Tensor, np.ndarray)):
+        # Ensure that all labels are torch Tensors.
+        labels = [lab if isinstance(lab, torch.Tensor) else torch.from_numpy(lab) for lab in labels]
+        
+        padded_labels = []
+        for lab in labels:
+            # Assuming the labels are shaped as (1, H, W).
+            _, h_lab, w_lab = lab.size()
+            # Use the same max dimensions calculated from images for consistency if needed,
+            # or recalculate max label dimensions if they can differ significantly.
+            # Here, using image max dimensions assuming labels correspond spatially.
+            pad_lab = F.pad(lab, (0, max_w - w_lab, 0, max_h - h_lab), mode='constant', value=0)
+            padded_labels.append(pad_lab)
+        
+        labels_tensor = torch.stack(padded_labels, dim=0)
+        return images_tensor, labels_tensor
+    else:
+        # Testing case: labels are likely image names (strings)
+        # Return images tensor and the original list of labels (names)
+        return images_tensor, list(labels)
 
 class BSDS_Loader(data.Dataset):
     """
@@ -91,11 +103,22 @@ class BSDS_Loader(data.Dataset):
             img_file, lb_file = self.filelist[index].split()
             img_file = img_file.strip()
             lb_file = lb_file.strip()
-            # lb = np.array(Image.open(os.path.join(self.root, lb_file)), dtype=np.float32)
-            lb = Image.open(os.path.join(self.root, lb_file))
-            lb = self.to_tensor(lb)
 
-            # print("label shape: ", lb.size())
+            lb = np.array(Image.open(os.path.join(self.root, lb_file)), dtype=np.float32)
+
+            lb = torch.from_numpy(lb)
+
+            # print("torch label shape: ", lb.size())
+            # print("torch dtype: ", lb.dtype)
+
+            if lb.dim() == 3:
+                lb = torch.permute(lb, (2, 0, 1))[0, :, :]
+            
+            lb = torch.unsqueeze(lb, 0)
+            assert lb.size()[0] == 1
+
+
+            # print("label shape after dim change: ", lb.size())
 
             # Resize
             if self.fixed_size is not None:
@@ -103,22 +126,34 @@ class BSDS_Loader(data.Dataset):
             
             # print("label shape after reshape: ", lb.size())
 
-            if lb.dim() == 3:
-                lb = lb[0, :, :]
-            assert lb.dim() == 2
-
-            # print("label shape after dim change: ", lb.size())
-
-                
 
             threshold = self.threshold
+            # lb = torch.unsqueeze(lb, 0)
+            # lb = torch.permute(lb, (2, 0, 1))
+            lb = torch.where(lb == 0, 0, lb)
+            lb = torch.where((lb > 0) & (lb < threshold), 2, lb)
+            lb = torch.where(lb >= threshold, 1, lb)
+            
+            # lb_torch = lb
+            # print("torch final label shape: ", lb_torch.shape)
+
+            # lb = np.array(Image.open(os.path.join(self.root, lb_file)), dtype=np.float32)
+            # # print("numpy label shape: ", lb.shape)
+            # if lb.ndim == 3:
+            #     lb = np.squeeze(lb[:, :, 0])
+            # assert lb.ndim == 2
+            # threshold = self.threshold
             # lb = lb[np.newaxis, :, :]
-            lb = torch.unsqueeze(lb, 0)
             # lb[lb == 0] = 0
             # lb[np.logical_and(lb>0, lb<threshold)] = 2
             # lb[lb >= threshold] = 1
-            lb = torch.where(lb > 0, 2, lb)
-            lb = torch.where(lb >= threshold, 1, lb)
+            # print("numpy final label shape: ", lb.shape)
+
+
+            # # get the difference between lb and lb_torch
+            # print("sum lb: ", np.sum(lb))
+            # print("sum lb torch: ", np.sum(lb_torch.numpy(force=True)))
+            # assert np.sum(lb) == np.sum(lb_torch.numpy(force=True))
             
         else:
             img_file = self.filelist[index].rstrip()
@@ -127,6 +162,8 @@ class BSDS_Loader(data.Dataset):
             img = Image.open(f)
             img = img.convert('RGB')
         img = self.transform(img)
+
+        # print("input image shape: ", img.size())
 
         if self.split == "train":
             return img, lb
